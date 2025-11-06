@@ -1,65 +1,56 @@
-local minitel = require("minitel")
 local component = require("component")
-
+local event = require("event")
+local computer = require("computer")
+local conf = require("ocnet.conf").getConf()
 local log = require("ocnet.log")
-local config = require("ocnet.conf")
 
-local DNS = {}
+local modem = component.modem
 
+local M = {}
 
-function DNS.register()
-    local f = io.open("/etc/hostname", "r")
-    local hostname = f and f:read("*l") or "unknown"
-    if f then f:close() end
-
-    local modemUUID
-    for addr in component.list("modem") do
-        modemUUID = addr
-        break
+local function ensurePort()
+    if not modem.isOpen(conf.port) then
+        modem.open(conf.port)
     end
-
-    if not modemUUID then
-        log.error("no modem found")
-        return
-    end
-    local conf = config.getConf()
-
-    log.info(string.format("REG %s (%s) -> %s:%d", hostname, modemUUID, conf.gateway, conf.port))
-    minitel.usend(conf.gateway, conf.port, "REG " .. hostname .. " " .. modemUUID)
 end
 
-function DNS.resolve(name, opts)
-    local event    = require("event")
-    local minitel  = require("minitel")
-    local computer = require("computer")
+function M.register(name)
+    ensurePort()
+    name = name or conf.name
+    local addr = modem.address
+    local msg = string.format("REGISTER %s %s", name, addr)
+    if conf.gateway and conf.gateway ~= "" then
+        modem.send(conf.gateway, conf.port, msg)
+        log.info("register -> " .. conf.gateway .. " : " .. msg)
+    else
+        modem.broadcast(conf.port, msg)
+        log.info("register (broadcast): " .. msg)
+    end
+end
 
-    opts           = opts or {}
-    local conf     = config.getConf()
-
-    local gateway  = opts.gateway or conf.gateway
-    local port     = opts.port or conf.port
-    local timeout  = opts.timeout or conf.timeout
-
-    local f        = io.open("/etc/hostname", "r")
-    local me       = f and f:read("*l") or "client"
-    if f then f:close() end
-
-    minitel.usend(gateway, port, "Q " .. name .. " " .. me)
+function M.resolve(name, timeout)
+    ensurePort()
+    timeout = timeout or 2
+    local msg = string.format("RESOLVE %s", name)
+    if conf.gateway and conf.gateway ~= "" then
+        modem.send(conf.gateway, conf.port, msg)
+    else
+        modem.broadcast(conf.port, msg)
+    end
 
     local deadline = computer.uptime() + timeout
     while computer.uptime() < deadline do
-        local _, from, rport, data = event.pull(deadline - computer.uptime(), "net_msg")
-        if rport == port and type(data) == "string" then
+        local ev, _, from, port, _, data = event.pull(deadline - computer.uptime(), "modem_message")
+        if ev == "modem_message" and port == conf.port and type(data) == "string" then
             local cmd, a, b = data:match("^(%S+)%s+(%S+)%s*(%S*)")
-            if cmd == "A" and a == name then
-                return b, nil
-            elseif cmd == "NX" and a == name then
-                return nil, "NXDOMAIN"
+            if cmd == "RESOLVED" and a == name and b ~= "" then
+                return b
+            elseif cmd == "NXDOMAIN" and a == name then
+                return nil
             end
         end
     end
-
-    return nil, "timeout"
+    return nil
 end
 
-return DNS
+return M

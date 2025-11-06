@@ -1,35 +1,34 @@
-local event = require("event")
 local component = require("component")
-
+local event = require("event")
 local dns = require("ocnet.dns")
 local log = require("ocnet.log")
-local config = require("ocnet.conf")
+local conf = require("ocnet.conf").getConf()
 
-local conf = config.getConf()
 local modem = component.modem
 
-function start()
+local function start()
+  if not modem.isOpen(conf.port) then
+    modem.open(conf.port)
+  end
+
   dns.register()
 
-  local function onNetMsg(_, from, port, data)
+  local function onMsg(_, _, from, port, _, data)
     if port ~= conf.port or type(data) ~= "string" then
       return
     end
 
-    local cmd, a, b = data:match("^(%S+)%s*(%S*)%s*(%S*)")
+    local cmd, a = data:match("^(%S+)%s*(%S*)")
 
     if cmd == "DISC" then
-      log.info(string.format("DISC %s -> %s:%d", from, conf.gateway, conf.port))
+      log.info("DISC from " .. from .. ", re-register")
       dns.register()
     elseif cmd == "PING" then
-      -- einfacher ICMP-ähnlicher Reply
-      log.info(string.format("PING from %s", from))
       modem.send(from, conf.port, "PONG")
-    elseif cmd == "PONG" then
-      log.info(string.format("PONG from %s", from))
     end
   end
 
-  event.listen("net_msg", onNetMsg)
-  log.info("occlient listener started on port " .. tostring(conf.port))
+  event.listen("modem_message", onMsg)
 end
+
+start()

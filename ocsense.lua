@@ -1,101 +1,44 @@
+local component = require("component")
 local event = require("event")
-local minitel = require("minitel")
+local conf = require("ocnet.conf").getConf()
+local log = require("ocnet.log")
 
-local cfg = require("ocnet.conf").getSenseConf()
-local PORT = cfg.port
+local modem = component.modem
 local records = {}
-local running = true
 
-local local_suffixes = {}
-if cfg.local_domain and cfg.local_domain ~= "" then
-  table.insert(local_suffixes, cfg.local_domain)
-  if cfg.parent and cfg.parent ~= "" then
-    table.insert(local_suffixes, cfg.local_domain .. "." .. cfg.parent)
+if not modem.isOpen(conf.port) then
+  modem.open(conf.port)
+end
+
+modem.broadcast(conf.port, "DISC " .. (conf.name or ""))
+
+local function onMsg(_, _, from, port, _, data)
+  if port ~= conf.port or type(data) ~= "string" then
+    return
   end
-end
 
-print(string.format("[ocsense] %s running on port %d", cfg.name, cfg.port))
-if cfg.parent then
-  print("[ocsense] parent:", cfg.parent)
-end
-if #cfg.children > 0 then
-  print("[ocsense] children:", table.concat(cfg.children, ", "))
-end
-print("[ocsense] local suffixes:", table.concat(local_suffixes, ", "))
-print("[ocsense] Ctrl+C to exit")
+  local cmd, a, b = data:match("^(%S+)%s+(%S+)%s*(%S*)")
 
-local function endsWith(str, suffix)
-  return suffix ~= "" and str:sub(- #suffix) == suffix
-end
-
-local function stripLocalSuffixes(name)
-  for _, suf in ipairs(local_suffixes) do
-    if endsWith(name, suf) then
-      local cut = #name - #suf
-      if name:sub(cut, cut) == "." then
-        return name:sub(1, cut - 1)
-      else
-        return name:sub(1, cut)
-      end
+  if cmd == "REGISTER" and a and b and b ~= "" then
+    records[a] = b
+    log.info(string.format("registered %s -> %s", a, b))
+  elseif cmd == "REGISTER" and a and (not b or b == "") then
+    records[a] = from
+    log.info(string.format("registered %s -> %s (from)", a, from))
+  elseif cmd == "RESOLVE" and a then
+    local target = records[a]
+    if target then
+      modem.send(from, conf.port, string.format("RESOLVED %s %s", a, target))
+    else
+      modem.send(from, conf.port, string.format("NXDOMAIN %s", a))
     end
+  elseif cmd == "PING" then
+    modem.send(from, conf.port, "PONG")
   end
-  return name
 end
 
-function stop()
-  running = false
-end
+event.listen("modem_message", onMsg)
 
-function start()
-  while running do
-    local ev, fromName, port, data, fromAddr = event.pull()
-    if ev == "interrupted" then
-      print("[ocsense] interrupted")
-      running = false
-    elseif ev == "net_msg" and port == PORT and type(data) == "string" then
-      local cmd, a, b = data:match("^(%S+)%s*(%S*)%s*(%S*)")
-
-      if cmd == "REG" and a ~= "" and b ~= "" then
-        records[a] = b
-        print("[ocsense] REG", a, "=>", b)
-      elseif cmd == "Q" and a ~= "" then
-        local replyto = (b ~= "" and b) or fromName
-        local target  = a
-
-        local addr    = records[target]
-
-        if not addr then
-          local stripped = stripLocalSuffixes(target)
-          if stripped ~= target then
-            addr = records[stripped]
-            if not addr then
-              stripped = stripLocalSuffixes(stripped)
-              addr = records[stripped]
-            end
-          end
-        end
-
-        if addr then
-          minitel.usend(replyto, PORT, "A " .. target .. " " .. addr)
-        else
-          local forwarded = false
-          for _, child in ipairs(cfg.children) do
-            if endsWith(target, child) then
-              minitel.usend(child, PORT, "Q " .. target .. " " .. replyto)
-              forwarded = true
-              break
-            end
-          end
-
-          if not forwarded then
-            if cfg.parent and cfg.parent ~= "" then
-              minitel.usend(cfg.parent, PORT, "Q " .. target .. " " .. replyto)
-            else
-              minitel.usend(replyto, PORT, "NX " .. target)
-            end
-          end
-        end
-      end
-    end
-  end
+while true do
+  event.pull("interrupted")
 end

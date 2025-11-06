@@ -1,69 +1,26 @@
+local component = require("component")
 local event = require("event")
-local minitel = require("minitel")
+local conf = require("ocnet.conf").getConf()
 
+local modem = component.modem
 
-local cfg = require("ocnet.conf").getSenseConf()
-local PORT = cfg.port
+if not modem.isOpen(conf.port) then
+  modem.open(conf.port)
+end
+
 local records = {}
-local running = true
 
-print(string.format("[octop] %s running on port %d", cfg.name, cfg.port))
-print("[octop] children: " .. (#cfg.children > 0 and table.concat(cfg.children, ", ") or "<none>"))
-print("[octop] local domain: " .. (cfg.local_domain or "<none>"))
-print("[octop] Ctrl+C to exit")
-
-local function endsWith(str, suf)
-  return suf ~= "" and str:sub(- #suf) == suf
-end
-
-local function matchChild(target)
-  for _, child in ipairs(cfg.children) do
-    if target == child then
-      return child
-    end
-    if endsWith(target, "." .. child) then
-      return child
-    end
-    if cfg.local_domain and endsWith(target, "." .. child .. "." .. cfg.local_domain) then
-      return child
+local deadline = os.time() + 2
+while os.time() < deadline do
+  local ev, _, from, port, _, data = event.pull(0.5, "modem_message")
+  if ev == "modem_message" and port == conf.port and type(data) == "string" then
+    local cmd, name, addr = data:match("^(%S+)%s+(%S+)%s*(%S*)")
+    if cmd == "ENTRY" and name and addr and addr ~= "" then
+      records[#records + 1] = { name = name, addr = addr }
     end
   end
-  return nil
 end
 
-function stop()
-  running = false
-end
-
-function start()
-  while running do
-    local ev, fromName, port, data, fromAddr = event.pull()
-    if ev == "interrupted" then
-      print("[octop] beendet")
-      running = false
-    elseif ev == "net_msg" and port == PORT and type(data) == "string" then
-      local cmd, a, b = data:match("^(%S+)%s*(%S*)%s*(%S*)")
-      if cmd == "REG" and a ~= "" and b ~= "" then
-        records[a] = b
-        print("[octop] REG", a, "=>", b)
-      elseif cmd == "Q" and a ~= "" then
-        local replyto = (b ~= "" and b) or fromName
-        local target  = a
-
-        local addr    = records[target]
-        if addr then
-          minitel.usend(replyto, PORT, "A " .. target .. " " .. addr)
-        else
-          local child = matchChild(target)
-          if child then
-            print("[octop] forward", target, "->", child)
-            minitel.usend(child, PORT, "Q " .. target .. " " .. replyto)
-          else
-            print("[octop] NX", target)
-            minitel.usend(replyto, PORT, "NX " .. target)
-          end
-        end
-      end
-    end
-  end
+for _, r in ipairs(records) do
+  print(string.format("%-20s %s", r.name, r.addr))
 end
