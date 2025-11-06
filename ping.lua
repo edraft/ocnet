@@ -10,7 +10,7 @@ if not name then
 end
 
 local uuid, err = dns.resolve(name)
-if uuid then
+if not uuid then
     print("error:", err)
     return
 end
