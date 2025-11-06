@@ -1,7 +1,9 @@
 local event = require("event")
-local minitel = require("minitel")
+local component = require("component")
 local computer = require("computer")
 local dns = require("ocnet.dns")
+
+local modem = component.modem
 
 local name = ...
 if not name then
@@ -15,43 +17,47 @@ if not uuid then
     return
 end
 
+-- port 1 für ping
+local PING_PORT = 1
+if not modem.isOpen(PING_PORT) then
+    modem.open(PING_PORT)
+end
+
 local function pingByUUID(targetUUID, count)
     count = count or 4
     local successCount = 0
     local totalTime = 0
 
-    print(string.format("PING %s via Minitel:", targetUUID))
+    print(string.format("PING %s via modem:", targetUUID))
 
     for i = 1, count do
         local t1 = computer.uptime()
-        local ok, err = pcall(function()
-            minitel.send(targetUUID, 1, "ping") -- port 1 reserved for ping
-        end)
+        modem.send(targetUUID, PING_PORT, "ping")
 
-        if not ok then
-            print(string.format("Error sending ping: %s", err))
-            os.sleep(1)
+        local _, _, from, port, _, msg = event.pull(1, "modem_message")
+        local t2 = computer.uptime()
+
+        if from == targetUUID and port == PING_PORT and msg == "pong" then
+            local rtt = (t2 - t1) * 1000
+            successCount = successCount + 1
+            totalTime = totalTime + rtt
+            print(string.format("Reply from %s: time=%.1f ms", from, rtt))
         else
-            local _, _, from, port, _, msg = event.pull(1, "minitel_message")
-            local t2 = computer.uptime()
-
-            if msg == "pong" and from == targetUUID then
-                local rtt = (t2 - t1) * 1000
-                successCount = successCount + 1
-                totalTime = totalTime + rtt
-                print(string.format("Reply from %s: time=%.1f ms", from, rtt))
-            else
-                print("Request timed out.")
-            end
+            print("Request timed out.")
         end
+
         os.sleep(1)
     end
 
     print()
     print(string.format("Ping statistics for %s:", targetUUID))
-    print(string.format("  Packets: Sent = %d, Received = %d, Lost = %d (%.0f%% loss)",
-        count, successCount, count - successCount,
-        ((count - successCount) / count) * 100))
+    print(string.format(
+        "  Packets: Sent = %d, Received = %d, Lost = %d (%.0f%% loss)",
+        count,
+        successCount,
+        count - successCount,
+        ((count - successCount) / count) * 100
+    ))
 
     if successCount > 0 then
         print(string.format("Approx. round trip times in milli-seconds: avg = %.1f ms",
