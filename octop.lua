@@ -31,31 +31,37 @@ local function matchChild(target)
   return nil
 end
 
-while running do
-  local ev, fromName, port, data, fromAddr = event.pull()
-  if ev == "interrupted" then
-    print("[octop] beendet")
-    running = false
-  elseif ev == "net_msg" and port == PORT and type(data) == "string" then
-    local cmd, a, b = data:match("^(%S+)%s*(%S*)%s*(%S*)")
-    if cmd == "REG" and a ~= "" and b ~= "" then
-      records[a] = b
-      print("[octop] REG", a, "=>", b)
-    elseif cmd == "Q" and a ~= "" then
-      local replyto = (b ~= "" and b) or fromName
-      local target  = a
+function stop()
+  running = false
+end
 
-      local addr    = records[target]
-      if addr then
-        minitel.usend(replyto, PORT, "A " .. target .. " " .. addr)
-      else
-        local child = matchChild(target)
-        if child then
-          print("[octop] forward", target, "->", child)
-          minitel.usend(child, PORT, "Q " .. target .. " " .. replyto)
+function start()
+  while running do
+    local ev, fromName, port, data, fromAddr = event.pull()
+    if ev == "interrupted" then
+      print("[octop] beendet")
+      running = false
+    elseif ev == "net_msg" and port == PORT and type(data) == "string" then
+      local cmd, a, b = data:match("^(%S+)%s*(%S*)%s*(%S*)")
+      if cmd == "REG" and a ~= "" and b ~= "" then
+        records[a] = b
+        print("[octop] REG", a, "=>", b)
+      elseif cmd == "Q" and a ~= "" then
+        local replyto = (b ~= "" and b) or fromName
+        local target  = a
+
+        local addr    = records[target]
+        if addr then
+          minitel.usend(replyto, PORT, "A " .. target .. " " .. addr)
         else
-          print("[octop] NX", target)
-          minitel.usend(replyto, PORT, "NX " .. target)
+          local child = matchChild(target)
+          if child then
+            print("[octop] forward", target, "->", child)
+            minitel.usend(child, PORT, "Q " .. target .. " " .. replyto)
+          else
+            print("[octop] NX", target)
+            minitel.usend(replyto, PORT, "NX " .. target)
+          end
         end
       end
     end
