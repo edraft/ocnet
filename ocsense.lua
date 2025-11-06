@@ -1,35 +1,7 @@
 local event = require("event")
 local minitel = require("minitel")
 
-local function loadConf()
-  local f = io.open("/etc/ocsense.conf", "r")
-  if not f then
-    return {
-      name = "home",
-      port = 5353,
-      parent = "net",
-      children = {},
-      local_domain = "home",
-    }
-  end
-  local text = f:read("*a")
-  f:close()
-  local ok, t = pcall(load("return " .. text))
-  if ok and type(t) == "table" then
-    if not t.port then t.port = 5353 end
-    if not t.children then t.children = {} end
-    return t
-  end
-  return {
-    name = "home1",
-    port = 5353,
-    parent = "net",
-    children = {},
-    local_domain = "home",
-  }
-end
-
-local cfg = loadConf()
+local cfg = require("ocnet.conf").getSenseConf()
 local PORT = cfg.port
 local records = {}
 local running = true
@@ -42,18 +14,18 @@ if cfg.local_domain and cfg.local_domain ~= "" then
   end
 end
 
-print(string.format("[ocsense] %s läuft auf port %d", cfg.name, cfg.port))
+print(string.format("[ocsense] %s running on port %d", cfg.name, cfg.port))
 if cfg.parent then
   print("[ocsense] parent:", cfg.parent)
 end
 if #cfg.children > 0 then
   print("[ocsense] children:", table.concat(cfg.children, ", "))
 end
-print("[ocsense] lokale suffixe:", table.concat(local_suffixes, ", "))
-print("[ocsense] Strg+C zum Beenden")
+print("[ocsense] local suffixes:", table.concat(local_suffixes, ", "))
+print("[ocsense] Ctrl+C to exit")
 
 local function endsWith(str, suffix)
-  return suffix ~= "" and str:sub(-#suffix) == suffix
+  return suffix ~= "" and str:sub(- #suffix) == suffix
 end
 
 local function stripLocalSuffixes(name)
@@ -73,21 +45,19 @@ end
 while running do
   local ev, fromName, port, data, fromAddr = event.pull()
   if ev == "interrupted" then
-    print("[ocsense] beendet")
+    print("[ocsense] interrupted")
     running = false
-
   elseif ev == "net_msg" and port == PORT and type(data) == "string" then
     local cmd, a, b = data:match("^(%S+)%s*(%S*)%s*(%S*)")
 
     if cmd == "REG" and a ~= "" and b ~= "" then
       records[a] = b
       print("[ocsense] REG", a, "=>", b)
-
     elseif cmd == "Q" and a ~= "" then
       local replyto = (b ~= "" and b) or fromName
       local target  = a
 
-      local addr = records[target]
+      local addr    = records[target]
 
       if not addr then
         local stripped = stripLocalSuffixes(target)

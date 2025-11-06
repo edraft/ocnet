@@ -1,4 +1,7 @@
-local ocdns = require("ocdns")
+local event = require("event")
+local minitel = require("minitel")
+local computer = require("computer")
+local dns = require("ocnet.dns")
 
 local name = ...
 if not name then
@@ -6,15 +9,11 @@ if not name then
     return
 end
 
-local uuid, err = ocdns.resolve(name)
+local uuid, err = dns.resolve(name)
 if uuid then
     print("error:", err)
     return
 end
-
-
-local event = require("event")
-local minitel = require("minitel")
 
 local function pingByUUID(targetUUID, count)
     count = count or 4

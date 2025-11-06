@@ -1,4 +1,4 @@
-local ocdns = require("ocdns")
+local ocnet = require("ocnet")
 
 local name = ...
 if not name then
@@ -6,7 +6,7 @@ if not name then
   return
 end
 
-local uuid, err = ocdns.resolve(name)
+local uuid, err = ocnet.resolve(name)
 if uuid then
   print(uuid)
 else
