@@ -2,7 +2,6 @@ local component = require("component")
 local event = require("event")
 local computer = require("computer")
 local dns = require("ocnet.dns")
-local log = require("ocnet.log")
 local confmod = require("ocnet.conf")
 
 local conf = confmod.getConf()
@@ -37,40 +36,34 @@ local function discoverGateway()
   end
 end
 
-local function start()
-  if not modem.isOpen(conf.port) then
-    modem.open(conf.port)
-  end
-
-  if not conf.gateway or conf.gateway == "" then
-    discoverGateway()
-  else
-    dns.register()
-  end
-
-  local function onMsg(_, _, from, port, _, data)
-    if port ~= conf.port or type(data) ~= "string" then
-      return
-    end
-
-    local cmd, a = data:match("^(%S+)%s*(%S*)")
-
-    if cmd == "CL_DISC" then
-      dns.register()
-    elseif cmd == "PING" then
-      modem.send(from, conf.port, "PONG")
-    elseif cmd == "GW_HERE" then
-      if a and a ~= "" then
-        conf.gateway = a
-      else
-        conf.gateway = from
-      end
-      confmod.saveConf("/etc/ocnet.conf", conf)
-      dns.register()
-    end
-  end
-
-  event.listen("modem_message", onMsg)
+if not modem.isOpen(conf.port) then
+  modem.open(conf.port)
 end
 
-start()
+if not conf.gateway or conf.gateway == "" then
+  discoverGateway()
+else
+  dns.register()
+end
+
+local function onMsg(_, _, from, port, _, msg, a)
+  if port ~= conf.port or type(msg) ~= "string" then
+    return
+  end
+
+  if msg == "CL_DISC" then
+    dns.register()
+  elseif msg == "PING" then
+    modem.send(from, conf.port, "PONG")
+  elseif msg == "GW_HERE" then
+    if a and a ~= "" then
+      conf.gateway = a
+    else
+      conf.gateway = from
+    end
+    confmod.saveConf("/etc/ocnet.conf", conf)
+    dns.register()
+  end
+end
+
+event.listen("modem_message", onMsg)

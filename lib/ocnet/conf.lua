@@ -83,7 +83,10 @@ end
 function Conf.getSenseConf()
     local conf = Conf.loadConf("/etc/ocsense.conf", {
         segment = "local",
-        port = 42
+        eth0 = nil,
+        eth1 = nil,
+        eth2 = nil,
+        eth3 = nil
     })
     return conf
 end
