@@ -74,7 +74,7 @@ end
 
 function Conf.getConf()
     local conf = Conf.loadConf("/etc/ocnet.conf", {
-        gateway = "",
+        gateway = nil,
         port = 42
     })
     return conf
@@ -83,10 +83,7 @@ end
 function Conf.getSenseConf()
     local conf = Conf.loadConf("/etc/ocsense.conf", {
         segment = "local",
-        eth0 = nil,
-        eth1 = nil,
-        eth2 = nil,
-        eth3 = nil
+        gateway = nil,
     })
     return conf
 end

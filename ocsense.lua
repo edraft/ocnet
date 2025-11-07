@@ -49,10 +49,6 @@ local function gateway_discovery(m, from, localModemAddr)
   m.send(from, port, "GW_HERE", localModemAddr)
 end
 
-local function client_discovery()
-  dns.register(true)
-end
-
 local function registerClient(from, localModemAddr, msg, transcv)
   local addr = transcv or from
   local host, seg = normalize(msg)
@@ -111,8 +107,6 @@ local function onModemMessage(_, localModemAddr, from, port, _, msg, a, b)
 
   if msg == "GW_DISC" then
     gateway_discovery(m, from, localModemAddr)
-  elseif msg == "CL_DISC" then
-    client_discovery()
   elseif msg == "REGISTER" then
     registerClient(from, localModemAddr, a, b)
   elseif msg == "RESOLVE" then
