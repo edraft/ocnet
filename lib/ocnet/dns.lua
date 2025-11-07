@@ -77,17 +77,18 @@ function M.resolve(name)
     ensurePort()
     local conf = require("ocnet.conf").getConf()
 
-    event.listen("modem_message", function(_, _, from, port, _, msg, a, b)
+    local function onMsg(_, _, from, port, _, msg, a, b)
         if port ~= conf.port or type(msg) ~= "string" then
             return
         end
-
-        if msg == "RESOLVE_OK" and a == name then
+        
+        if msg == "RESOLVE_OK" then
             resolveResult = { ok = true, addr = b }
         elseif msg == "RESOLVE_FAIL" then
-            resolveResult = { ok = false, msg = a }
+            resolveResult = { ok = false, msg = b }
         end
-    end)
+    end
+    event.listen("modem_message", onMsg)
 
     modem.send(conf.gateway, conf.port, "RESOLVE", name)
     local t = computer.uptime()
@@ -95,6 +96,8 @@ function M.resolve(name)
         if resolveResult then break end
         event.pull(0.2)
     end
+    event.ignore("modem_message", onMsg)
+
     if not resolveResult then
         return nil
     elseif resolveResult.ok then

@@ -1,4 +1,3 @@
-local filesystem = require("filesystem")
 local event = require("event")
 local modemlib = require("ocrouter.modem")
 
@@ -69,19 +68,22 @@ end
 
 local function resolve(m, from, msg)
   local host, seg = normalize(msg)
+  print("RES: " .. tostring(host) .. " SEG: " .. tostring(seg))
   if not host then
-    m.send(from, port, "RESOLVE_FAIL", msg or "")
+    m.send(from, port, "RESOLVE_FAIL", msg or "", "invalid hostname")
     return
   end
   if seg and seg ~= conf.segment then
-    m.send(from, port, "RESOLVE_FAIL", msg)
+    -- later resolve by ocsense of other segment
+    m.send(from, port, "RESOLVE_FAIL", msg, "segment mismatch")
     return
   end
+
   local entry = registry.resolve(host)
   if entry then
     m.send(from, port, "RESOLVE_OK", host, entry.addr)
   else
-    m.send(from, port, "RESOLVE_FAIL", msg)
+    m.send(from, port, "RESOLVE_FAIL", msg, "not found")
   end
 end
 
