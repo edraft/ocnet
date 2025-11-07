@@ -2,7 +2,7 @@ local Conf = {}
 
 local function serialize(tbl, indent)
     indent = indent or ""
-    local parts = {"{\n"}
+    local parts = { "{\n" }
     local nextIndent = indent .. "  "
     for k, v in pairs(tbl) do
         local key
@@ -32,6 +32,21 @@ function Conf.createConf(path, content)
     end
 end
 
+function Conf.saveConf(path, tbl)
+    local f = io.open(path, "w")
+    if not f then return end
+    f:write("{\n")
+    for k, v in pairs(tbl) do
+        if type(v) == "number" then
+            f:write("  ", k, " = ", v, ",\n")
+        else
+            f:write("  ", k, " = \"", v, "\",\n")
+        end
+    end
+    f:write("}\n")
+    f:close()
+end
+
 function Conf.loadConf(path, defaults)
     defaults = defaults or {}
     local f = io.open(path, "r")
@@ -59,20 +74,16 @@ end
 
 function Conf.getConf()
     local conf = Conf.loadConf("/etc/ocnet.conf", {
-        gateway = "gw",
-        port = 5353,
-        timeout = 3
+        gateway = "",
+        port = 42
     })
     return conf
 end
 
 function Conf.getSenseConf()
     local conf = Conf.loadConf("/etc/ocsense.conf", {
-        name = "gw",
-        port = 5353,
-        parent = nil,
-        children = {},
-        local_domain = "home",
+        segment = "local",
+        port = 42
     })
     return conf
 end
