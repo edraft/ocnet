@@ -6,9 +6,9 @@ function M.get()
     return registry
 end
 
-function M.register(name, addr, via)
+function M.register(name, addr, via, public)
     if name and addr then
-        registry[name] = { addr = addr, via = via }
+        registry[name] = { addr = addr, via = via, public = public }
     end
 end
 
@@ -27,7 +27,7 @@ end
 function M.list()
     local result = {}
     for name, entry in pairs(registry) do
-        table.insert(result, { name = name, addr = entry.addr, via = entry.via })
+        table.insert(result, { name = name, addr = entry.addr, via = entry.via, public = entry.public })
     end
     return result
 end
@@ -35,7 +35,7 @@ end
 function M.findByAddr(addr)
     for name, entry in pairs(registry) do
         if entry.addr == addr then
-            return { name = name, addr = entry.addr, via = entry.via }
+            return entry
         end
     end
     return nil

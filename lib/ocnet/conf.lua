@@ -35,15 +35,8 @@ end
 function Conf.saveConf(path, tbl)
     local f = io.open(path, "w")
     if not f then return end
-    f:write("{\n")
-    for k, v in pairs(tbl) do
-        if type(v) == "number" then
-            f:write("  ", k, " = ", v, ",\n")
-        else
-            f:write("  ", k, " = \"", v, "\",\n")
-        end
-    end
-    f:write("}\n")
+    f:write(serialize(tbl))
+    f:write("\n")
     f:close()
 end
 
@@ -51,6 +44,7 @@ function Conf.loadConf(path, defaults)
     defaults = defaults or {}
     local f = io.open(path, "r")
     if not f then
+        -- Datei existiert nicht: direkt defaults schreiben
         Conf.createConf(path, serialize(defaults))
         return defaults
     end
@@ -59,23 +53,34 @@ function Conf.loadConf(path, defaults)
     f:close()
 
     local ok, tbl = pcall(load("return " .. text))
-    if ok and type(tbl) == "table" then
-        for k, v in pairs(defaults) do
-            if tbl[k] == nil then
-                tbl[k] = v
-            end
-        end
-        return tbl
+    if not ok or type(tbl) ~= "table" then
+        -- kaputt oder kein Table -> defaults schreiben
+        Conf.createConf(path, serialize(defaults))
+        return defaults
     end
 
-    Conf.createConf(path, serialize(defaults))
-    return defaults
+    -- fehlende Defaults einfügen
+    local changed = false
+    for k, v in pairs(defaults) do
+        if tbl[k] == nil then
+            tbl[k] = v
+            changed = true
+        end
+    end
+
+    -- wenn wir ergänzt haben, Datei aktualisieren
+    if changed then
+        Conf.saveConf(path, tbl)
+    end
+
+    return tbl
 end
 
 function Conf.getConf()
     local conf = Conf.loadConf("/etc/ocnet.conf", {
         gateway = nil,
-        port = 42
+        port = 42,
+        public = false
     })
     return conf
 end

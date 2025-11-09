@@ -107,7 +107,7 @@ local function forwardResolve(outModem, replyModem, requesterAddr, remoteAddr, f
 
   event.listen("modem_message", onReply)
 
-  outModem.send(remoteAddr, LISTEN_PORT, "RESOLVE", fqdn)
+  outModem.send(remoteAddr, LISTEN_PORT, "RESOLVE", fqdn, conf.segment)
   if debug then
     print("[sense] forward RESOLVE " .. fqdn .. " via " .. tostring(outModem.address) .. " -> " .. tostring(remoteAddr))
   end
@@ -153,7 +153,7 @@ local function forwardTrace(outModem, replyModem, requesterAddr, remoteAddr, fqd
     traces = traces .. " -> " .. tostring(outModem.address)
   end
 
-  outModem.send(remoteAddr, LISTEN_PORT, "TRACE", fqdn, traces)
+  outModem.send(remoteAddr, LISTEN_PORT, "TRACE", fqdn, traces, conf.segment)
   if debug then
     print("[sense] forward TRACE " ..
       tostring(fqdn) .. " via " .. tostring(outModem.address) .. " -> " .. tostring(remoteAddr))
@@ -187,7 +187,7 @@ function OCSense.gatewayDiscovery(modem, from, ...)
   modem.send(from, LISTEN_PORT, "GW_HERE", modem.address)
 end
 
-function OCSense.clientRegistration(modem, from, msg, transcv, ...)
+function OCSense.clientRegistration(modem, from, msg, transcv, public, ...)
   local addr = transcv or from
   local host, seg = normalize(msg)
   if seg and not isLocalSegment(seg) then
@@ -198,13 +198,15 @@ function OCSense.clientRegistration(modem, from, msg, transcv, ...)
   end
   if host and addr then
     if debug then
-      print("[client] REG " .. host .. " -> " .. tostring(addr))
+      local type = "PRI"
+      if public then type = "PUB" end
+      print("[client] REG " .. host .. " -> " .. tostring(addr) .. " type=" .. type)
     end
-    registry.register(host, addr, modem.address)
+    registry.register(host, addr, modem.address, public)
   end
 end
 
-function OCSense.resolve(modem, from, fqdn, ...)
+function OCSense.resolve(modem, from, fqdn, requesting_segment, ...)
   local host, seg = normalize(fqdn)
   if debug then
     print("[resolve] fqdn=" .. tostring(fqdn) .. " host=" .. tostring(host) .. " seg=" .. tostring(seg))
@@ -217,6 +219,11 @@ function OCSense.resolve(modem, from, fqdn, ...)
   if not seg or isLocalSegment(seg) then
     local entry = registry.resolve(host)
     if entry then
+      if requesting_segment and requesting_segment ~= conf.segment and not entry.public then
+        modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "access denied")
+        return
+      end
+
       modem.send(from, LISTEN_PORT, "RESOLVE_OK", fqdn, entry.addr)
     else
       modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "not found")
@@ -257,7 +264,7 @@ function OCSense.senseDiscoveryAnswer(modem, from, a, ...)
   registerSense(modem, from, a)
 end
 
-function OCSense.trace(modem, from, fqdn, traces, ...)
+function OCSense.trace(modem, from, fqdn, traces, requesting_segment, ...)
   if debug then
     print("[sense] RX TRACE " .. tostring(fqdn) .. " from " .. tostring(from))
   end
@@ -275,6 +282,15 @@ function OCSense.trace(modem, from, fqdn, traces, ...)
   end
 
   if not seg or isLocalSegment(seg) then
+    local entry = registry.resolve(host)
+    if not entry then
+      modem.send(from, LISTEN_PORT, "TRACE_FAIL", fqdn, "not found", traces)
+      return
+    end
+    if requesting_segment and requesting_segment ~= conf.segment and not entry.public then
+      modem.send(from, LISTEN_PORT, "TRACE_FAIL", fqdn, "access denied", traces)
+      return
+    end
     modem.send(from, LISTEN_PORT, "TRACE_OK", fqdn, traces)
     return
   end

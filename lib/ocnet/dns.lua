@@ -65,9 +65,9 @@ function M.register(verbose)
     end
 
     if conf.gateway and conf.gateway ~= "" then
-        modem.send(conf.gateway, conf.port, "REGISTER", name, modem.address)
+        modem.send(conf.gateway, conf.port, "REGISTER", name, modem.address, conf.public)
         if verbose then
-            print("register -> " .. conf.gateway .. " : " .. name .. " " .. modem.address)
+            print("register -> " .. conf.gateway .. " : " .. name .. " " .. modem.address .. " public=" .. tostring(conf.public))
         end
     end
 end
