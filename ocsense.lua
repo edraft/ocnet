@@ -1,16 +1,15 @@
 local event = require("event")
 local computer = require("computer")
-local modemlib = require("ocrouter.modem")
 
 local conf = require("ocnet.conf").getSenseConf()
 local dns = require("ocnet.dns")
 local registry = require("ocrouter.registry")
 local sense_registry = require("ocrouter.sense_registry")
+local sense = require("ocrouter.sense")
 
 local do_stop = false
 local LISTEN_PORT = require("ocnet.conf").getConf().port
 local debug = conf.debug or false
-local modems = modemlib.openAll(LISTEN_PORT)
 
 local function checkHostnameBySegment()
   local hostname = dns.getHostname()
@@ -46,16 +45,9 @@ local function isLocalSegment(reqSeg)
   return false
 end
 
-local function closeModems()
-  for _, m in pairs(modems) do
-    m.close(LISTEN_PORT)
-  end
-  modems = {}
-end
-
 local function registerOwnModems()
   local m_count = 0
-  for _, m in pairs(modems) do
+  for _, m in pairs(sense.modems) do
     registry.register("gw" .. tostring(m_count), m.address, nil)
     m.broadcast(LISTEN_PORT, "CL_DISC")
     m_count = m_count + 1
@@ -63,36 +55,14 @@ local function registerOwnModems()
 end
 
 local function announceSense()
-  for _, m in pairs(modems) do
+  for _, m in pairs(sense.modems) do
     if debug then
-      print("[sense] TX SENSE_HI " .. tostring(conf.segment) .. " via " .. tostring(m.address))
       print("[sense] TX SENSE_DISC " .. tostring(conf.segment) .. " via " .. tostring(m.address))
     end
-    m.broadcast(LISTEN_PORT, "SENSE_HI", conf.segment, m.address)
     m.broadcast(LISTEN_PORT, "SENSE_DISC", conf.segment, m.address)
   end
 end
 
-local function gateway_discovery(m, from, localModemAddr)
-  m.send(from, LISTEN_PORT, "GW_HERE", localModemAddr)
-end
-
-local function registerClient(from, localModemAddr, msg, transcv)
-  local addr = transcv or from
-  local host, seg = normalize(msg)
-  if seg and not isLocalSegment(seg) then
-    if debug then
-      print("[client] REG ignored foreign " .. tostring(msg))
-    end
-    return
-  end
-  if host and addr then
-    if debug then
-      print("[client] REG " .. host .. " -> " .. tostring(addr))
-    end
-    registry.register(host, addr, localModemAddr)
-  end
-end
 
 local function findSenseForSegment(seg)
   if not seg then return nil end
@@ -162,22 +132,61 @@ local function forwardResolve(outModem, replyModem, requesterAddr, remoteAddr, f
   end
 end
 
-local function resolve(m, from, fqdn)
+
+
+local function registerSense(modem, from, segment, ...)
+  if not segment then return end
+  sense_registry.register(segment, from, modem.address)
+  if debug then
+    print("[sense] REG " .. tostring(segment) .. " -> " .. tostring(from) .. " via " .. tostring(modem.address))
+  end
+end
+
+-- #########################
+--
+-- OCSense Event Handlers
+--
+-- #########################
+
+local OCSense = {}
+
+function OCSense.gatewayDiscovery(modem, from, ...)
+  modem.send(from, LISTEN_PORT, "GW_HERE", modem.address)
+end
+
+function OCSense.clientRegistration(modem, from, msg, transcv, ...)
+  local addr = transcv or from
+  local host, seg = normalize(msg)
+  if seg and not isLocalSegment(seg) then
+    if debug then
+      print("[client] REG ignored foreign " .. tostring(msg))
+    end
+    return
+  end
+  if host and addr then
+    if debug then
+      print("[client] REG " .. host .. " -> " .. tostring(addr))
+    end
+    registry.register(host, addr, modem.address)
+  end
+end
+
+function OCSense.resolve(modem, from, fqdn, ...)
   local host, seg = normalize(fqdn)
   if debug then
     print("[resolve] fqdn=" .. tostring(fqdn) .. " host=" .. tostring(host) .. " seg=" .. tostring(seg))
   end
   if not host then
-    m.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn or "", "invalid hostname")
+    modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn or "", "invalid hostname")
     return
   end
 
   if not seg or isLocalSegment(seg) then
     local entry = registry.resolve(host)
     if entry then
-      m.send(from, LISTEN_PORT, "RESOLVE_OK", fqdn, entry.addr)
+      modem.send(from, LISTEN_PORT, "RESOLVE_OK", fqdn, entry.addr)
     else
-      m.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "not found")
+      modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "not found")
     end
     return
   end
@@ -187,57 +196,46 @@ local function resolve(m, from, fqdn)
     if debug then
       print("[sense] unknown segment " .. tostring(seg))
     end
-    m.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "unknown segment")
+    modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "unknown segment")
     return
   end
 
-  local outModem = modems[remoteSense.via] or m
+  local outModem = sense.modems[remoteSense.via] or modem
   if debug then
     print("[sense] use remote " .. tostring(remoteSense.addr) ..
       " via " .. tostring(remoteSense.via) ..
       " for " .. tostring(seg))
   end
-  forwardResolve(outModem, m, from, remoteSense.addr, fqdn)
+  forwardResolve(outModem, modem, from, remoteSense.addr, fqdn)
 end
 
-local function registerSense(from, localModemAddr, segment)
-  if not segment then return end
-  sense_registry.register(segment, from, localModemAddr)
+function OCSense.senseDiscovery(modem, from, a, ...)
   if debug then
-    print("[sense] REG " .. tostring(segment) .. " -> " .. tostring(from) .. " via " .. tostring(localModemAddr))
+    print("[sense] RX SENSE_DISC from " .. tostring(from) .. " expect=" .. tostring(a))
   end
+  modem.send(from, LISTEN_PORT, "SENSE_HI", conf.segment, modem.address)
+  registerSense(modem, from, a)
 end
 
-local function onModemMessage(_, localModemAddr, from, rport, _, msg, a, b)
-  if rport ~= LISTEN_PORT or type(msg) ~= "string" then
-    return
+function OCSense.senseDiscoveryAnswer(modem, from, a, ...)
+  if debug then
+    print("[sense] RX SENSE_HI " .. tostring(a) .. " from " .. tostring(from))
   end
-  local m = modems[localModemAddr]
-  if not m then
-    return
-  end
-
-  if msg == "GW_DISC" then
-    gateway_discovery(m, from, localModemAddr)
-  elseif msg == "REGISTER" then
-    registerClient(from, localModemAddr, a, b)
-  elseif msg == "RESOLVE" then
-    resolve(m, from, a)
-  elseif msg == "SENSE_DISC" then
-    if debug then
-      print("[sense] RX SENSE_DISC from " .. tostring(from) .. " expect=" .. tostring(a))
-    end
-    m.send(from, LISTEN_PORT, "SENSE_HI", conf.segment, localModemAddr)
-  elseif msg == "SENSE_HI" then
-    if debug then
-      print("[sense] RX SENSE_HI " .. tostring(a) .. " from " .. tostring(from))
-    end
-    registerSense(from, localModemAddr, a)
-  end
+  registerSense(modem, from, a)
 end
 
 function start()
-  event.listen("modem_message", onModemMessage)
+  sense.verbose = debug
+
+  sense.registerEvent("GW_DISC", OCSense.gatewayDiscovery)
+
+  sense.registerEvent("REGISTER", OCSense.clientRegistration)
+  sense.registerEvent("RESOLVE", OCSense.resolve)
+
+  sense.registerEvent("SENSE_DISC", OCSense.senseDiscovery)
+  sense.registerEvent("SENSE_HI", OCSense.senseDiscoveryAnswer)
+
+  sense.listen()
   checkHostnameBySegment()
   registerOwnModems()
   announceSense()
@@ -250,8 +248,7 @@ function start()
     end
   end
 
-  event.ignore("modem_message", onModemMessage)
-  closeModems()
+  sense.stop()
   registry.clear()
   sense_registry.clear()
 end
