@@ -63,7 +63,6 @@ local function announceSense()
   end
 end
 
-
 local function findSenseForSegment(seg)
   if not seg then return nil end
 
@@ -132,7 +131,47 @@ local function forwardResolve(outModem, replyModem, requesterAddr, remoteAddr, f
   end
 end
 
+local function forwardTrace(outModem, replyModem, requesterAddr, remoteAddr, fqdn, traces)
+  local deadline = computer.uptime() + 3
+  local result = nil
 
+  local function onReply(_, _, rfrom, rport, _, rmsg, ra, rb, rc)
+    if rport ~= LISTEN_PORT then return end
+    if rfrom ~= remoteAddr then return end
+    if rmsg == "TRACE_OK" and ra == fqdn then
+      result = { ok = true, fqdn = ra, traces = rb }
+    elseif rmsg == "TRACE_FAIL" and ra == fqdn then
+      result = { ok = false, fqdn = ra, msg = rb, traces = rc }
+    end
+  end
+
+  event.listen("modem_message", onReply)
+
+  if not traces or traces == "" then
+    traces = " -> " .. tostring(outModem.address)
+  else
+    traces = traces .. " -> " .. tostring(outModem.address)
+  end
+
+  outModem.send(remoteAddr, LISTEN_PORT, "TRACE", fqdn, traces)
+  if debug then
+    print("[sense] forward TRACE " ..
+      tostring(fqdn) .. " via " .. tostring(outModem.address) .. " -> " .. tostring(remoteAddr))
+  end
+
+  while computer.uptime() < deadline and not result do
+    event.pull(0.2)
+  end
+
+  event.ignore("modem_message", onReply)
+
+  if result and result.ok then
+    replyModem.send(requesterAddr, LISTEN_PORT, "TRACE_OK", fqdn, result.traces)
+  else
+    replyModem.send(requesterAddr, LISTEN_PORT, "TRACE_FAIL", fqdn, (result and result.msg) or "remote unresolved",
+      (result and result.traces) or traces)
+  end
+end
 
 local function registerSense(modem, from, segment, ...)
   if not segment then return end
@@ -141,12 +180,6 @@ local function registerSense(modem, from, segment, ...)
     print("[sense] REG " .. tostring(segment) .. " -> " .. tostring(from) .. " via " .. tostring(modem.address))
   end
 end
-
--- #########################
---
--- OCSense Event Handlers
---
--- #########################
 
 local OCSense = {}
 
@@ -224,6 +257,44 @@ function OCSense.senseDiscoveryAnswer(modem, from, a, ...)
   registerSense(modem, from, a)
 end
 
+function OCSense.trace(modem, from, fqdn, traces, ...)
+  if debug then
+    print("[sense] RX TRACE " .. tostring(fqdn) .. " from " .. tostring(from))
+  end
+
+  local host, seg = normalize(fqdn)
+  if not host then
+    modem.send(from, LISTEN_PORT, "TRACE_FAIL", fqdn or "", "invalid hostname", traces or "")
+    return
+  end
+
+  if not traces or traces == "" then
+    traces = conf.segment .. "@" .. tostring(modem.address)
+  else
+    traces = traces .. "," .. conf.segment .. "@" .. tostring(modem.address)
+  end
+
+  if not seg or isLocalSegment(seg) then
+    modem.send(from, LISTEN_PORT, "TRACE_OK", fqdn, traces)
+    return
+  end
+
+  local remoteSense = findSenseForSegment(seg)
+  if not remoteSense then
+    if debug then
+      print("[sense] unknown segment for TRACE " .. tostring(seg))
+    end
+    modem.send(from, LISTEN_PORT, "TRACE_FAIL", fqdn, "unknown segment", traces)
+    return
+  end
+
+  local outModem = sense.modems[remoteSense.via] or modem
+  if debug then
+    print("[sense] TRACE forward to " .. tostring(remoteSense.addr) .. " via " .. tostring(remoteSense.via))
+  end
+  forwardTrace(outModem, modem, from, remoteSense.addr, fqdn, traces)
+end
+
 function start()
   sense.verbose = debug
 
@@ -234,6 +305,9 @@ function start()
 
   sense.registerEvent("SENSE_DISC", OCSense.senseDiscovery)
   sense.registerEvent("SENSE_HI", OCSense.senseDiscoveryAnswer)
+
+  sense.registerEvent("ROUTE", OCSense.route)
+  sense.registerEvent("TRACE", OCSense.trace)
 
   sense.listen()
   checkHostnameBySegment()

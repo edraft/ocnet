@@ -2,7 +2,7 @@ local dns = require("ocnet.dns")
 
 local name = ...
 if not name then
-  io.stderr:write("Usage: resolve <hostname>\n")
+  io.stderr:write("Usage: dns <hostname>\n")
   return
 end
 

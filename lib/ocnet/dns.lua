@@ -81,7 +81,6 @@ function M.resolve(name)
         if port ~= conf.port or type(msg) ~= "string" then
             return
         end
-        
         if msg == "RESOLVE_OK" then
             resolveResult = { ok = true, addr = b }
         elseif msg == "RESOLVE_FAIL" then
@@ -104,6 +103,40 @@ function M.resolve(name)
         return resolveResult.addr
     else
         return resolveResult.msg
+    end
+end
+
+function M.trace(name)
+    local traceResult = nil
+    ensurePort()
+    local conf = require("ocnet.conf").getConf()
+
+    local function onMsg(_, _, from, port, _, msg, a, b)
+        if port ~= conf.port or type(msg) ~= "string" then
+            return
+        end
+        if msg == "TRACE_OK" then
+            traceResult = { ok = true, addr = b }
+        elseif msg == "TRACE_FAIL" then
+            traceResult = { ok = false, msg = b }
+        end
+    end
+    event.listen("modem_message", onMsg)
+
+    modem.send(conf.gateway, conf.port, "TRACE", name)
+    local t = computer.uptime()
+    while computer.uptime() - t < 3 do
+        if traceResult then break end
+        event.pull(0.2)
+    end
+    event.ignore("modem_message", onMsg)
+
+    if not traceResult then
+        return nil
+    elseif traceResult.ok then
+        return traceResult.addr
+    else
+        return traceResult.msg
     end
 end
 
