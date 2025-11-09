@@ -3,6 +3,7 @@ local event = require("event")
 local computer = require("computer")
 local dns = require("ocnet.dns")
 local confmod = require("ocnet.conf")
+local ocnet = require("ocnet")
 
 local conf = confmod.getConf()
 local modem = component.modem
@@ -66,4 +67,14 @@ local function onMsg(_, _, from, port, _, msg, a)
   end
 end
 
+local function onPingMsg(from, port, fqdn, msg)
+  if port ~= 1 then
+    return
+  end
+  if msg == "PING" then
+    ocnet.send(fqdn, conf.port, "PONG")
+  end
+end
+
 event.listen("modem_message", onMsg)
+ocnet.listen(1, onPingMsg)

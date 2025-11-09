@@ -295,6 +295,59 @@ function OCSense.trace(modem, from, fqdn, traces, ...)
   forwardTrace(outModem, modem, from, remoteSense.addr, fqdn, traces)
 end
 
+function OCSense.route(modem, from, srcFqdn, fqdn, rport, ttl, ...)
+  ttl = tonumber(ttl) or 0
+  rport = tonumber(rport) or 0
+
+  if debug then
+    print("[sense] RX ROUTE from " .. tostring(from) ..
+      " src=" .. tostring(srcFqdn) ..
+      " dest=" .. tostring(fqdn) ..
+      " port=" .. tostring(rport) ..
+      " ttl=" .. tostring(ttl))
+  end
+
+  if srcFqdn == nil or srcFqdn == "" then
+    local entry = registry.findByAddr(from)
+    if not entry then
+      return
+    end
+    srcFqdn = entry.name
+  end
+
+  if not fqdn or not rport or ttl < 1 then
+    return
+  end
+
+  local host, seg = normalize(fqdn)
+  if not host then
+    return
+  end
+
+  if not seg or isLocalSegment(seg) then
+    local entry = registry.resolve(host)
+    if entry then
+      local out = sense.modems[entry.via] or modem
+      out.send(entry.addr, rport, srcFqdn, ...)
+    end
+    return
+  end
+
+  local rsEntry, rsName = findSenseForSegment(seg)
+  if not rsEntry then
+    return
+  end
+
+  local outModem = sense.modems[rsEntry.via] or modem
+  local fwdTtl = ttl - 1
+  if fwdTtl < 1 then
+    return
+  end
+
+  srcFqdn = srcFqdn .. "." .. conf.segment
+  outModem.send(rsEntry.addr, LISTEN_PORT, "ROUTE", srcFqdn, fqdn, rport, fwdTtl, ...)
+end
+
 function start()
   sense.verbose = debug
 

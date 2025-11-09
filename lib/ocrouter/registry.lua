@@ -32,6 +32,15 @@ function M.list()
     return result
 end
 
+function M.findByAddr(addr)
+    for name, entry in pairs(registry) do
+        if entry.addr == addr then
+            return { name = name, addr = entry.addr, via = entry.via }
+        end
+    end
+    return nil
+end
+
 function M.clear()
     registry = {}
 end

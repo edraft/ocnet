@@ -1,10 +1,8 @@
-local component = require("component")
 local event = require("event")
 local computer = require("computer")
 local dns = require("ocnet.dns")
 local conf = require("ocnet.conf").getConf()
-
-local modem = component.modem
+local ocnet = require("ocnet")
 
 local target = ...
 if not target or target == "" then
@@ -12,35 +10,44 @@ if not target or target == "" then
     return
 end
 
-local addr = dns.resolve(target, 2)
-if not addr then
-    io.stderr:write(target .. ": NXDOMAIN\n")
-    return
+print(string.format("PING %s (%s): %d data bytes", target, target, 32))
+
+local srcFqdn = dns.getHostname()
+
+local replyReceived = false
+local function onReply(_, _, from, port, _, srcFqdnReply, msg)
+    if port == conf.port and msg == "PONG" then
+        replyReceived = true
+    end
 end
+event.listen("modem_message", onReply)
 
-if not modem.isOpen(conf.port) then
-    modem.open(conf.port)
+local function startswith(str, start)
+    return str:sub(1, #start) == start
 end
-
-print(string.format("PING %s (%s): %d data bytes", target, addr, 32))
-
-local selfAddr = modem.address
 
 for i = 1, 4 do
     local t0 = computer.uptime()
+    replyReceived = false
 
-    if addr == selfAddr then
-        -- loopback, no need to send anything
+    if target == srcFqdn or startswith(target, srcFqdn .. ".") then
         local ms = (computer.uptime() - t0) * 1000
-        print(string.format("32 bytes from %s: time=%.2f ms", addr, ms))
+        print(string.format("32 bytes from %s: time=%.2f ms", target, ms))
     else
-        modem.send(addr, conf.port, "PING")
-        local ev, _, from, port, _, data = event.pull(1, "modem_message")
-        if ev == "modem_message" and from == addr and port == conf.port and data == "PONG" then
+        ocnet.send(target, 1, "PING")
+
+        local deadline = computer.uptime() + 1
+        while computer.uptime() < deadline and not replyReceived do
+            event.pull(0.1)
+        end
+
+        if replyReceived then
             local ms = (computer.uptime() - t0) * 1000
-            print(string.format("32 bytes from %s: time=%.2f ms", addr, ms))
+            print(string.format("32 bytes from %s: time=%.2f ms", target, ms))
         else
             print("Request timeout for icmp_seq " .. i)
         end
     end
 end
+
+event.ignore("modem_message", onReply)
