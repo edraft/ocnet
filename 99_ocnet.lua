@@ -54,8 +54,6 @@ local function onMsg(_, _, from, port, _, msg, a)
 
   if msg == "CL_DISC" then
     dns.register()
-  elseif msg == "PING" then
-    modem.send(from, conf.port, "PONG")
   elseif msg == "GW_HERE" then
     if a and a ~= "" then
       conf.gateway = a
