@@ -113,7 +113,7 @@ local function forwardResolve(outModem, replyModem, requesterAddr, remoteAddr, f
   end
 
   while computer.uptime() < deadline and not result do
-    event.pull(0.2)
+    event.pull()
   end
 
   event.ignore("modem_message", onReply)
@@ -364,6 +364,22 @@ function OCSense.route(modem, from, srcFqdn, fqdn, rport, ttl, ...)
   outModem.send(rsEntry.addr, LISTEN_PORT, "ROUTE", srcFqdn, fqdn, rport, fwdTtl, ...)
 end
 
+function OCSense.list(modem, from, ...)
+  local entries = registry.list()
+  local msg = ""
+  for _, entry in pairs(entries) do
+    if msg ~= "" then
+      msg = msg .. ","
+    end
+    msg = msg .. tostring(entry.name) .. ":" .. tostring(entry.addr)
+  end
+
+  if debug then
+    print("[sense] RX LIST from " .. tostring(from))
+  end
+  modem.send(from, LISTEN_PORT, "LIST_OK", msg)
+end
+
 function start()
   sense.verbose = debug
 
@@ -371,6 +387,7 @@ function start()
 
   sense.registerEvent("REGISTER", OCSense.clientRegistration)
   sense.registerEvent("RESOLVE", OCSense.resolve)
+  sense.registerEvent("LIST", OCSense.list)
 
   sense.registerEvent("SENSE_DISC", OCSense.senseDiscovery)
   sense.registerEvent("SENSE_HI", OCSense.senseDiscoveryAnswer)
