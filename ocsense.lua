@@ -11,13 +11,6 @@ local do_stop = false
 local LISTEN_PORT = require("ocnet.conf").getConf().port
 local debug = conf.debug or false
 
-
-local function termClear()
-  local term = require("term")
-  term.clear()
-  term.setCursor(1, 1)
-end
-
 local function checkHostnameBySegment()
   local hostname = dns.getHostname()
   if hostname ~= conf.segment then
@@ -407,7 +400,6 @@ function start()
   registerOwnModems()
   announceSense()
 
-  termClear()
   print("ocsense running on segment '" .. tostring(conf.segment) .. "'" .. " port " .. tostring(LISTEN_PORT))
   while not do_stop do
     local ev = { event.pull() }
