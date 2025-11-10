@@ -65,12 +65,9 @@ local function onMsg(_, _, from, port, _, msg, a)
   end
 end
 
-local function onPingMsg(from, port, fqdn, msg)
-  if port ~= 1 then
-    return
-  end
+local function onPingMsg(from, msg)
   if msg == "PING" then
-    ocnet.send(fqdn, conf.port, "PONG")
+    ocnet.send(from, 1, "PONG")
   end
 end
 

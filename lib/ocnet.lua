@@ -55,22 +55,33 @@ function M.listen(port, handler)
         modem.open(port)
     end
 
-    local function onMessage(_, _, from, rport, _, ...)
+    local function onMessage(_, _, _, rport, _, srcFqdn, ...)
         if rport ~= port then
             return
         end
-        handler(from, port, ...)
+        handler(srcFqdn, ...)
     end
 
-    listeners[port] = onMessage
+    listeners[port] = {listener = onMessage, handler = handler}
     event.listen("modem_message", onMessage)
 end
 
-function M.unlisten(port)
+function M.unlisten(handler)
+    local event = require("event")
+
+    for port, h in pairs(listeners) do
+        if h.handler == handler then
+            local x = event.ignore("modem_message", h.listener)
+            listeners[port] = nil
+        end
+    end
+end
+
+function M.close(port)
     local event = require("event")
     local h = listeners[port]
     if h then
-        event.ignore("modem_message", h)
+        event.ignore("modem_message", h.listener)
         listeners[port] = nil
     end
 end

@@ -15,12 +15,12 @@ print(string.format("PING %s (%s): %d data bytes", target, target, 32))
 local srcFqdn = dns.getHostname()
 
 local replyReceived = false
-local function onReply(_, _, from, port, _, srcFqdnReply, msg)
-    if port == conf.port and msg == "PONG" then
+local function onReply(from, msg)
+    if msg == "PONG" then
         replyReceived = true
     end
 end
-event.listen("modem_message", onReply)
+ocnet.listen(1, onReply)
 
 local function startswith(str, start)
     return str:sub(1, #start) == start
@@ -38,7 +38,7 @@ for i = 1, 4 do
 
         local deadline = computer.uptime() + 1
         while computer.uptime() < deadline and not replyReceived do
-            event.pull(0.1)
+            event.pull(0.2)
         end
 
         if replyReceived then
@@ -50,4 +50,4 @@ for i = 1, 4 do
     end
 end
 
-event.ignore("modem_message", onReply)
+ocnet.unlisten(onReply)

@@ -7,7 +7,6 @@ local registry = require("ocrouter.registry")
 local sense_registry = require("ocrouter.sense_registry")
 local sense = require("ocrouter.sense")
 
-local do_stop = false
 local LISTEN_PORT = require("ocnet.conf").getConf().port
 local debug = conf.debug or false
 
@@ -179,7 +178,8 @@ local function registerSense(modem, from, segment, public, ...)
   if debug then
     local type = "PRI"
     if public then type = "PUB" end
-    print("[sense] REG " .. tostring(segment) .. " -> " .. tostring(from) .. " via " .. tostring(modem.address) .. " (" .. type .. ")")
+    print("[sense] REG " ..
+      tostring(segment) .. " -> " .. tostring(from) .. " via " .. tostring(modem.address) .. " (" .. type .. ")")
   end
 end
 
@@ -339,7 +339,8 @@ function OCSense.route(modem, from, srcFqdn, fqdn, rport, ttl, ...)
       " src=" .. tostring(srcFqdn) ..
       " dest=" .. tostring(fqdn) ..
       " port=" .. tostring(rport) ..
-      " ttl=" .. tostring(ttl))
+      " ttl=" .. tostring(ttl) ..
+      " ...event=" .. tostring(...))
   end
 
   if srcFqdn == nil or srcFqdn == "" then
@@ -430,21 +431,23 @@ function start()
 
   local type = "PRI"
   if conf.public then type = "PUB" end
-  print("ocsense running on " .. type .. " segment '" .. tostring(conf.segment) .. "'" .. " port " .. tostring(LISTEN_PORT))
-  while not do_stop do
+  print("ocsense running on " ..
+    type .. " segment '" .. tostring(conf.segment) .. "'" .. " port " .. tostring(LISTEN_PORT))
+
+  while true do
     local ev = { event.pull() }
     if ev[1] == "interrupted" then
       break
     end
   end
 
-  sense.stop()
-  registry.clear()
-  sense_registry.clear()
+  stop()
 end
 
 function stop()
-  do_stop = true
+  sense.stop()
+  registry.clear()
+  sense_registry.clear()
 end
 
 start()
