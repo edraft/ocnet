@@ -1,27 +1,28 @@
 local Conf = {}
 
-local function serialize(tbl, indent)
-    indent = indent or ""
-    local parts = { "{\n" }
-    local nextIndent = indent .. "  "
-    for k, v in pairs(tbl) do
-        local key
-        if type(k) == "string" and k:match("^%a[%w_]*$") then
-            key = k
-        else
-            key = "[" .. tostring(k) .. "]"
+local function serialize_value(v, indent)
+    if type(v) == "string" then
+        return string.format("%q", v)
+    elseif type(v) == "number" or type(v) == "boolean" then
+        return tostring(v)
+    elseif type(v) == "table" then
+        indent = indent or ""
+        local nextIndent = indent .. "  "
+        local parts = { "{\n" }
+        for k, vv in pairs(v) do
+            local key
+            if type(k) == "string" and k:match("^%a[%w_]*$") then
+                key = k
+            else
+                key = "[" .. tostring(k) .. "]"
+            end
+            table.insert(parts, string.format("%s%s = %s,\n", nextIndent, key, serialize_value(vv, nextIndent)))
         end
-
-        if type(v) == "string" then
-            table.insert(parts, string.format("%s%s = %q,\n", nextIndent, key, v))
-        elseif type(v) == "number" or type(v) == "boolean" then
-            table.insert(parts, string.format("%s%s = %s,\n", nextIndent, key, tostring(v)))
-        elseif type(v) == "table" then
-            table.insert(parts, string.format("%s%s = %s,\n", nextIndent, key, serialize(v, nextIndent)))
-        end
+        table.insert(parts, indent .. "}")
+        return table.concat(parts)
+    else
+        return "nil"
     end
-    table.insert(parts, indent .. "}")
-    return table.concat(parts)
 end
 
 function Conf.createConf(path, content)
@@ -32,20 +33,39 @@ function Conf.createConf(path, content)
     end
 end
 
-function Conf.saveConf(path, tbl)
+local function appendMissingKeysToFile(path, originalText, missing)
+    local lastBrace = originalText:match("()%}%s*$")
+    if not lastBrace then
+        local f = io.open(path, "w")
+        if f then
+            f:write(serialize_value(missing))
+            f:close()
+        end
+        return
+    end
+
+    local before = originalText:sub(1, lastBrace - 1)
+    local after = originalText:sub(lastBrace)
+
+    local add = ""
+    for k, v in pairs(missing) do
+        add = add .. string.format("  %s = %s,\n", k, serialize_value(v))
+    end
+
     local f = io.open(path, "w")
-    if not f then return end
-    f:write(serialize(tbl))
-    f:write("\n")
-    f:close()
+    if f then
+        f:write(before)
+        f:write(add)
+        f:write(after)
+        f:close()
+    end
 end
 
 function Conf.loadConf(path, defaults)
     defaults = defaults or {}
     local f = io.open(path, "r")
     if not f then
-        -- Datei existiert nicht: direkt defaults schreiben
-        Conf.createConf(path, serialize(defaults))
+        Conf.createConf(path, serialize_value(defaults) .. "\n")
         return defaults
     end
 
@@ -54,23 +74,22 @@ function Conf.loadConf(path, defaults)
 
     local ok, tbl = pcall(load("return " .. text))
     if not ok or type(tbl) ~= "table" then
-        -- kaputt oder kein Table -> defaults schreiben
-        Conf.createConf(path, serialize(defaults))
+        Conf.createConf(path, serialize_value(defaults) .. "\n")
         return defaults
     end
 
-    -- fehlende Defaults einfügen
+    local missing = {}
     local changed = false
     for k, v in pairs(defaults) do
         if tbl[k] == nil then
             tbl[k] = v
+            missing[k] = v
             changed = true
         end
     end
 
-    -- wenn wir ergänzt haben, Datei aktualisieren
     if changed then
-        Conf.saveConf(path, tbl)
+        appendMissingKeysToFile(path, text, missing)
     end
 
     return tbl
@@ -88,7 +107,9 @@ end
 function Conf.getSenseConf()
     local conf = Conf.loadConf("/etc/ocsense.conf", {
         segment = "local",
+        debug = false,
         gateway = nil,
+        public = true
     })
     return conf
 end

@@ -59,7 +59,7 @@ local function announceSense()
     if debug then
       print("[sense] TX SENSE_DISC " .. tostring(conf.segment) .. " via " .. tostring(m.address))
     end
-    m.broadcast(LISTEN_PORT, "SENSE_DISC", conf.segment, m.address)
+    m.broadcast(LISTEN_PORT, "SENSE_DISC", conf.segment, m.address, conf.public)
   end
 end
 
@@ -173,11 +173,13 @@ local function forwardTrace(outModem, replyModem, requesterAddr, remoteAddr, fqd
   end
 end
 
-local function registerSense(modem, from, segment, ...)
+local function registerSense(modem, from, segment, public, ...)
   if not segment then return end
-  sense_registry.register(segment, from, modem.address)
+  sense_registry.register(segment, from, modem.address, public)
   if debug then
-    print("[sense] REG " .. tostring(segment) .. " -> " .. tostring(from) .. " via " .. tostring(modem.address))
+    local type = "PRI"
+    if public then type = "PUB" end
+    print("[sense] REG " .. tostring(segment) .. " -> " .. tostring(from) .. " via " .. tostring(modem.address) .. " (" .. type .. ")")
   end
 end
 
@@ -200,7 +202,7 @@ function OCSense.clientRegistration(modem, from, msg, transcv, public, ...)
     if debug then
       local type = "PRI"
       if public then type = "PUB" end
-      print("[client] REG " .. host .. " -> " .. tostring(addr) .. " type=" .. type)
+      print("[client] REG " .. host .. " -> " .. tostring(addr) .. " (" .. type .. ")")
     end
     registry.register(host, addr, modem.address, public)
   end
@@ -240,6 +242,14 @@ function OCSense.resolve(modem, from, fqdn, requesting_segment, ...)
     return
   end
 
+  if not remoteSense.public then
+    if debug then
+      print("[sense] access denied for segment " .. tostring(seg))
+    end
+    modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "access denied")
+    return
+  end
+
   local outModem = sense.modems[remoteSense.via] or modem
   if debug then
     print("[sense] use remote " .. tostring(remoteSense.addr) ..
@@ -249,19 +259,19 @@ function OCSense.resolve(modem, from, fqdn, requesting_segment, ...)
   forwardResolve(outModem, modem, from, remoteSense.addr, fqdn)
 end
 
-function OCSense.senseDiscovery(modem, from, a, ...)
+function OCSense.senseDiscovery(modem, from, a, _, public, ...)
   if debug then
-    print("[sense] RX SENSE_DISC from " .. tostring(from) .. " expect=" .. tostring(a))
+    print("[sense] RX SENSE_DISC from " .. tostring(from) .. " expect=" .. tostring(a) .. " public=" .. tostring(public))
   end
-  modem.send(from, LISTEN_PORT, "SENSE_HI", conf.segment, modem.address)
-  registerSense(modem, from, a)
+  modem.send(from, LISTEN_PORT, "SENSE_HI", conf.segment, modem.address, conf.public)
+  registerSense(modem, from, a, public)
 end
 
-function OCSense.senseDiscoveryAnswer(modem, from, a, ...)
+function OCSense.senseDiscoveryAnswer(modem, from, a, public, ...)
   if debug then
     print("[sense] RX SENSE_HI " .. tostring(a) .. " from " .. tostring(from))
   end
-  registerSense(modem, from, a)
+  registerSense(modem, from, a, public)
 end
 
 function OCSense.trace(modem, from, fqdn, traces, requesting_segment, ...)
@@ -301,6 +311,15 @@ function OCSense.trace(modem, from, fqdn, traces, requesting_segment, ...)
       print("[sense] unknown segment for TRACE " .. tostring(seg))
     end
     modem.send(from, LISTEN_PORT, "TRACE_FAIL", fqdn, "unknown segment", traces)
+    return
+  end
+
+
+  if not remoteSense.public then
+    if debug then
+      print("[sense] access denied for segment " .. tostring(seg))
+    end
+    modem.send(from, LISTEN_PORT, "TRACE_FAIL", fqdn, "access denied")
     return
   end
 
@@ -354,6 +373,15 @@ function OCSense.route(modem, from, srcFqdn, fqdn, rport, ttl, ...)
     return
   end
 
+
+  if not rsEntry.public then
+    if debug then
+      print("[sense] access denied for segment " .. tostring(seg))
+    end
+    modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "access denied")
+    return
+  end
+
   local outModem = sense.modems[rsEntry.via] or modem
   local fwdTtl = ttl - 1
   if fwdTtl < 1 then
@@ -400,7 +428,9 @@ function start()
   registerOwnModems()
   announceSense()
 
-  print("ocsense running on segment '" .. tostring(conf.segment) .. "'" .. " port " .. tostring(LISTEN_PORT))
+  local type = "PRI"
+  if conf.public then type = "PUB" end
+  print("ocsense running on " .. type .. " segment '" .. tostring(conf.segment) .. "'" .. " port " .. tostring(LISTEN_PORT))
   while not do_stop do
     local ev = { event.pull() }
     if ev[1] == "interrupted" then

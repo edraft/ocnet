@@ -1,14 +1,14 @@
 local M = {}
 local peers = {}
 
-function M.register(segment, addr, via)
+function M.register(segment, addr, via, public)
     if not segment or not addr then
         return
     end
     peers[segment] = {
         addr = addr,
         via = via,
-        ts = os.time()
+        public = public
     }
 end
 
