@@ -1,12 +1,18 @@
 local component = require("component")
 local computer = require("computer")
 local event = require("event")
+local shell = require("shell")
+local ocnet = require("ocnet")
 
 local conf = require("ocnet.conf").getConf()
 local received = false
 
 local function onModemMessage(_, _, from, port, _, _, hosts)
     if port ~= conf.port then
+        return
+    end
+
+    if not hosts or type(hosts) ~= "string" or hosts == "" then
         return
     end
 
@@ -28,10 +34,26 @@ if not modem.isOpen(conf.port) then
     modem.open(conf.port)
 end
 
-modem.send(conf.gateway, conf.port, "LIST")
-local deadline = computer.uptime() + 3
+local args, opts = shell.parse(...)
+local wantAll = false
+if opts.a or opts.all then
+    wantAll = true
+elseif args[1] == "-a" or args[1] == "--all" then
+    -- falls jemand die Option nicht richtig schreibt
+    wantAll = true
+end
+
+if wantAll then
+    print("Requesting all clients...")
+    modem.send(ocnet.gatewayAddr, conf.port, "LIST", true)
+else
+    print("Requesting local clients...")
+    modem.send(ocnet.gatewayAddr, conf.port, "LIST", false)
+end
+
+local deadline = computer.uptime() + 16
 while computer.uptime() < deadline and not received do
-    event.pull()
+    event.pull(0.1)
 end
 event.ignore("modem_message", onModemMessage)
 

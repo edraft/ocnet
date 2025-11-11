@@ -32,6 +32,16 @@ function M.list()
     return result
 end
 
+function M.listPublic()
+    local result = {}
+    for name, entry in pairs(registry) do
+        if entry.public then
+            table.insert(result, { name = name, addr = entry.addr, via = entry.via, public = entry.public })
+        end
+    end
+    return result
+end
+
 function M.findByAddr(addr)
     for name, entry in pairs(registry) do
         if entry.addr == addr then

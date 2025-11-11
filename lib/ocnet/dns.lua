@@ -2,6 +2,8 @@ local component = require("component")
 local event = require("event")
 local computer = require("computer")
 
+local ocnet = require("ocnet")
+
 local modem = component.modem
 
 local M = {}
@@ -40,7 +42,7 @@ end
 function M.register(verbose)
     local conf = require("ocnet.conf").getConf()
 
-    if not conf.gateway or conf.gateway == "" then
+    if not ocnet.gatewayAddr or ocnet.gatewayAddr == "" then
         if verbose then
             print("No gateway configured, cannot register")
         end
@@ -64,10 +66,11 @@ function M.register(verbose)
         return
     end
 
-    if conf.gateway and conf.gateway ~= "" then
-        modem.send(conf.gateway, conf.port, "REGISTER", name, modem.address, conf.public)
+    if ocnet.gatewayAddr and ocnet.gatewayAddr ~= "" then
+        modem.send(ocnet.gatewayAddr, conf.port, "REGISTER", name, modem.address, conf.public)
         if verbose then
-            print("register -> " .. conf.gateway .. " : " .. name .. " " .. modem.address .. " public=" .. tostring(conf.public))
+            print("register -> " ..
+            ocnet.gatewayAddr .. " : " .. name .. " " .. modem.address .. " public=" .. tostring(conf.public))
         end
     end
 end
@@ -89,7 +92,7 @@ function M.resolve(name)
     end
     event.listen("modem_message", onMsg)
 
-    modem.send(conf.gateway, conf.port, "RESOLVE", name)
+    modem.send(ocnet.gatewayAddr, conf.port, "RESOLVE", name)
     local t = computer.uptime()
     while computer.uptime() - t < 3 do
         if resolveResult then break end
@@ -123,7 +126,7 @@ function M.trace(name)
     end
     event.listen("modem_message", onMsg)
 
-    modem.send(conf.gateway, conf.port, "TRACE", name)
+    modem.send(ocnet.gatewayAddr, conf.port, "TRACE", name)
     local t = computer.uptime()
     while computer.uptime() - t < 3 do
         if traceResult then break end

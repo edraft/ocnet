@@ -1,9 +1,66 @@
-local conf = require("ocnet.conf").getConf()
+local component = require("component")
+local event = require("event")
+local computer = require("computer")
+
+local confmod = require("ocnet.conf")
+local conf = confmod.getConf()
+
+local modem = component.modem
+local listeners = {}
 
 local M = {}
-M.modem = nil
 M.ttl = 32
-local listeners = {}
+M.modem = nil
+M.gatewayAddr = nil
+
+function M.getGatewayAddress()
+    if M.gatewayAddr then
+        return M.gatewayAddr
+    end
+    M.findGatewayAddress()
+    return M.gatewayAddr
+end
+
+function M.findGatewayAddress()
+    local function onMsg(_, _, from, port, _, msg, name)
+        if port ~= conf.port or type(msg) ~= "string" then
+            return false
+        end
+
+        if msg == "GW_HERE" then
+            if not conf.gateway or conf.gateway == "" then
+                print("Discovered gateway: " .. name)
+                conf.gateway = name
+                confmod.saveConf("/etc/ocnet.conf", conf)
+            end
+
+            M.gatewayAddr = from
+
+            return true
+        end
+    end
+
+    event.listen("modem_message", onMsg)
+    if conf.gateway and conf.gateway ~= "" then
+        modem.broadcast(conf.port, "GW_DISC", conf.gateway)
+    else
+        modem.broadcast(conf.port, "GW_DISC")
+    end
+
+    local start = computer.uptime()
+    while true do
+        if computer.uptime() - start > 5 then
+            break
+        end
+        local ev = { event.pull(0.1) }
+        if ev[1] == "modem_message" then
+            if onMsg(table.unpack(ev)) then
+                break
+            end
+        end
+    end
+    event.ignore("modem_message", onMsg)
+end
 
 function M.useModem(modem)
     M.modem = modem
@@ -27,7 +84,7 @@ function M.reset()
 end
 
 function M.send(fqdn, port, ...)
-    if not conf.gateway or conf.gateway == "" then
+    if not M.gatewayAddr or M.gatewayAddr == "" then
         error("No gateway configured")
     end
     if not M.ttl or M.ttl < 1 then
@@ -35,7 +92,7 @@ function M.send(fqdn, port, ...)
     end
     local modem = M.getModem()
     local hostname = require("ocnet.dns").getHostname()
-    modem.send(conf.gateway, conf.port, "ROUTE", hostname, fqdn, port, M.ttl, ...)
+    modem.send(M.gatewayAddr, conf.port, "ROUTE", hostname, fqdn, port, M.ttl, ...)
 end
 
 -- -- direct broadcast in local RF/net, not via router
@@ -62,7 +119,7 @@ function M.listen(port, handler)
         handler(srcFqdn, ...)
     end
 
-    listeners[port] = {listener = onMessage, handler = handler}
+    listeners[port] = { listener = onMessage, handler = handler }
     event.listen("modem_message", onMessage)
 end
 

@@ -61,6 +61,15 @@ local function appendMissingKeysToFile(path, originalText, missing)
     end
 end
 
+function Conf.saveConf(path, conf)
+    local content = serialize_value(conf) .. "\n"
+    local f = io.open(path, "w")
+    if f then
+        f:write(content)
+        f:close()
+    end
+end
+
 function Conf.loadConf(path, defaults)
     defaults = defaults or {}
     local f = io.open(path, "r")

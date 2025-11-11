@@ -185,8 +185,12 @@ end
 
 local OCSense = {}
 
-function OCSense.gatewayDiscovery(modem, from, ...)
-  modem.send(from, LISTEN_PORT, "GW_HERE", modem.address)
+function OCSense.gatewayDiscovery(modem, from, name, ...)
+  if name and name ~= conf.segment then
+    return
+  end
+
+  modem.send(from, LISTEN_PORT, "GW_HERE", conf.segment)
 end
 
 function OCSense.clientRegistration(modem, from, msg, transcv, public, ...)
@@ -393,20 +397,73 @@ function OCSense.route(modem, from, srcFqdn, fqdn, rport, ttl, ...)
   outModem.send(rsEntry.addr, LISTEN_PORT, "ROUTE", srcFqdn, fqdn, rport, fwdTtl, ...)
 end
 
-function OCSense.list(modem, from, ...)
-  local entries = registry.list()
-  local msg = ""
-  for _, entry in pairs(entries) do
-    if msg ~= "" then
-      msg = msg .. ","
-    end
-    msg = msg .. tostring(entry.name) .. ":" .. tostring(entry.addr)
+function OCSense.list(modem, from, all, askingSense, ...)
+  local entries = {}
+  if not askingSense then
+    entries = registry.list()
+  else
+    entries = registry.listPublic()
   end
 
-  if debug then
-    print("[sense] RX LIST from " .. tostring(from))
+  local parts = {}
+
+  if not all then
+    modem.send(from, LISTEN_PORT, "LIST_OK", table.concat(parts, ","))
+    return
   end
-  modem.send(from, LISTEN_PORT, "LIST_OK", msg)
+
+  for _, e in pairs(entries) do
+    parts[#parts + 1] = tostring(e.name) .. "." .. tostring(conf.segment) .. ":" .. tostring(e.addr)
+  end
+
+  local received = {}
+  local function onMsg(_, _, rfrom, rport, _, rmsg, rdata)
+    if debug then
+      print("[LIST_OK] from " .. tostring(rfrom) .. " data=" .. tostring(rdata))
+    end
+    if rport ~= LISTEN_PORT then return end
+    if rmsg ~= "LIST_OK" then return end
+
+    if rdata and rdata ~= "" then
+      for entry in rdata:gmatch("([^,]+)") do
+        local name, addr = entry:match("^([^:]+):(.+)$")
+        if name and addr and askingSense then
+          parts[#parts + 1] = name .. "." .. conf.segment .. ":" .. addr
+        else
+          parts[#parts + 1] = entry
+        end
+      end
+    end
+    received[rfrom] = true
+    event.ignore("modem_message", onMsg)
+  end
+
+  event.listen("modem_message", onMsg)
+
+  for segment, s in pairs(sense_registry.listPublic()) do
+    if segment ~= conf.segment and segment ~= askingSense then
+      local out = sense.modems[s.via] or modem
+      received[s.addr] = false
+      out.send(s.addr, LISTEN_PORT, "LIST", true, conf.segment)
+    end
+  end
+
+  local function hasPending(t)
+    for _, v in pairs(t) do
+      if not v then
+        return true
+      end
+    end
+    return false
+  end
+
+  local deadline = computer.uptime() + 16
+
+  while computer.uptime() < deadline and hasPending(received) do
+    event.pull(0.1)
+  end
+  event.ignore("modem_message", onMsg)
+  modem.send(from, LISTEN_PORT, "LIST_OK", table.concat(parts, ","))
 end
 
 function start()
