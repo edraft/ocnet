@@ -506,5 +506,3 @@ function stop()
   registry.clear()
   sense_registry.clear()
 end
-
-start()
