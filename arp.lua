@@ -1,4 +1,3 @@
-local component = require("component")
 local computer = require("computer")
 local event = require("event")
 local shell = require("shell")
@@ -7,28 +6,41 @@ local ocnet = require("ocnet")
 local conf = require("ocnet.conf").getConf()
 local received = false
 
-local function onModemMessage(_, _, from, port, a, b, hosts)
+local interfaces = {}
+
+local function onModemMessage(_, _, from, port, a, msg, hosts, b, c)
     if port ~= conf.port then
         return
     end
 
-    if not hosts or type(hosts) ~= "string" or hosts == "" then
+    if msg ~= "LIST_OK" and msg ~= "LIST_END" then
         return
     end
 
-    print("Interface: " .. tostring(from))
-    for entry in string.gmatch(hosts, "([^,]+)") do
-        local name, addr = entry:match("([^:]+):([^:]+)")
-        if name and addr then
-            print(string.format("  %-10s -> %s", name, addr))
+    if hosts and type(hosts) == "string" and hosts ~= "" then
+        for entry in string.gmatch(hosts, "([^,]+)") do
+            local name, addr = entry:match("([^:]+):([^:]+)")
+            if name and addr then
+                if not interfaces[from] then
+                    interfaces[from] = {}
+                end
+                interfaces[from][name] = addr
+            end
         end
     end
 
-
-    received = true
+    if msg == "LIST_END" then
+        received = true
+    end
 end
 
-local modem = component.modem
+local modem = ocnet.getModem()
+
+if not modem then
+    print("No modem found. OCNet not running?")
+    return
+end
+
 if not modem.isOpen(conf.port) then
     modem.open(conf.port)
 end
@@ -46,13 +58,24 @@ else
     modem.send(ocnet.gatewayAddr, conf.port, "LIST", false)
 end
 
-local deadline = computer.uptime() + 16
+local deadline = computer.uptime() + 32
 while computer.uptime() < deadline and not received do
-    event.pull(0.1)
+    local ev = { event.pull(0.1) }
+    if ev[1] == "interrupted" then
+        break
+    end
 end
 event.ignore("modem_message", onModemMessage)
 
 if not received then
     print("No clients found.")
     return
+end
+
+-- for each interface print Interface ... then all entries
+for iface, entries in pairs(interfaces) do
+    print("Interface: " .. tostring(iface))
+    for name, addr in pairs(entries) do
+        print(string.format("  %-20s -> %s", name, addr))
+    end
 end

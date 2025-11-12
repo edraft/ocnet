@@ -5,7 +5,6 @@ local computer = require("computer")
 local confmod = require("ocnet.conf")
 local conf = confmod.getConf()
 
-local modem = component.modem
 local listeners = {}
 
 local M = {}
@@ -22,42 +21,54 @@ function M.getGatewayAddress()
 end
 
 function M.findGatewayAddress()
-    local function onMsg(_, _, from, port, _, msg, name)
+    local pending = true
+    local function onMsg(_, localModemAddr, from, port, _, msg, name)
         if port ~= conf.port or type(msg) ~= "string" then
             return false
         end
 
         if msg == "GW_HERE" then
+            pending = false
+            print("[ocnet] Found gateway '" .. tostring(name) .. "' at " .. tostring(from))
             if not conf.gateway or conf.gateway == "" then
-                print("Discovered gateway: " .. name)
                 conf.gateway = name
                 confmod.saveConf("/etc/ocnet.conf", conf)
             end
 
             M.gatewayAddr = from
 
+            for modem in component.list("modem") do
+                local m = component.proxy(modem)
+                if m.address ~= localModemAddr then
+                    break
+                end
+                M.useModem(m)
+            end
+
             return true
         end
     end
 
     event.listen("modem_message", onMsg)
-    if conf.gateway and conf.gateway ~= "" then
-        modem.broadcast(conf.port, "GW_DISC", conf.gateway)
-    else
-        modem.broadcast(conf.port, "GW_DISC")
+    print("[ocnet] Discovering gateway...")
+    for modem in component.list("modem") do
+        local m = component.proxy(modem)
+        if not m.isOpen(conf.port) then
+            m.open(conf.port)
+        end
+        if conf.gateway and conf.gateway ~= "" then
+            m.broadcast(conf.port, "GW_DISC", conf.gateway)
+        else
+            m.broadcast(conf.port, "GW_DISC")
+        end
     end
 
-    local start = computer.uptime()
-    while true do
-        if computer.uptime() - start > 5 then
-            break
-        end
-        local ev = { event.pull(0.1) }
-        if ev[1] == "modem_message" then
-            if onMsg(table.unpack(ev)) then
-                break
-            end
-        end
+    local deadline = computer.uptime() + 3
+    while computer.uptime() < deadline and pending do
+        event.pull(0.1)
+    end
+    if pending then
+        print("[ocnet] Gateway discovery timed out")
     end
     event.ignore("modem_message", onMsg)
 end

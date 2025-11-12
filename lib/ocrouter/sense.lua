@@ -18,7 +18,7 @@ end
 
 function sense.onModemMessage(_, localModemAddr, from, rport, _, msg, ...)
     if sense.verbose then
-        print("[sense] received message on modem " .. tostring(localModemAddr) ..
+        print("[sense] RX on modem " .. tostring(localModemAddr) ..
             " from " .. tostring(from) ..
             " port " .. tostring(rport) ..
             " msg " .. tostring(msg))

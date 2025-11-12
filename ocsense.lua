@@ -6,6 +6,7 @@ local dns = require("ocnet.dns")
 local registry = require("ocrouter.registry")
 local sense_registry = require("ocrouter.sense_registry")
 local sense = require("ocrouter.sense")
+local ocnet = require("ocnet")
 
 local LISTEN_PORT = require("ocnet.conf").getConf().port
 local debug = conf.debug or false
@@ -60,6 +61,13 @@ local function announceSense()
     end
     m.broadcast(LISTEN_PORT, "SENSE_DISC", conf.segment, m.address, conf.public)
   end
+end
+
+local function loadGateway()
+  if conf.skipGateway then
+    return
+  end
+  ocnet.findGatewayAddress()
 end
 
 local function findSenseForSegment(seg)
@@ -183,13 +191,33 @@ local function registerSense(modem, from, segment, public, ...)
   end
 end
 
+local function sendReboot(except)
+  if not debug then
+    return
+  end
+  if not except then
+    except = { address = nil }
+  end
+  for _, modem in pairs(sense.modems) do
+    if modem.address ~= except.address and modem.address ~= ocnet.gatewayAddr then
+      modem.broadcast(LISTEN_PORT, "RESTART", conf.segment)
+    end
+  end
+end
+
 local OCSense = {}
 
 function OCSense.gatewayDiscovery(modem, from, name, ...)
+  if debug then
+    print("[sense] RX GW_DISC from " .. tostring(from) .. " name=" .. tostring(name))
+  end
   if name and name ~= conf.segment then
     return
   end
 
+  if debug then
+    print("[sense] TX GW_HERE to " .. tostring(from))
+  end
   modem.send(from, LISTEN_PORT, "GW_HERE", conf.segment)
 end
 
@@ -198,7 +226,7 @@ function OCSense.clientRegistration(modem, from, msg, transcv, public, ...)
   local host, seg = normalize(msg)
   if seg and not isLocalSegment(seg) then
     if debug then
-      print("[client] REG ignored foreign " .. tostring(msg))
+      print("[sense] REG ignored foreign " .. tostring(msg))
     end
     return
   end
@@ -206,7 +234,7 @@ function OCSense.clientRegistration(modem, from, msg, transcv, public, ...)
     if debug then
       local type = "PRI"
       if public then type = "PUB" end
-      print("[client] REG " .. host .. " -> " .. tostring(addr) .. " (" .. type .. ")")
+      print("[sense] REG " .. host .. " -> " .. tostring(addr) .. " (" .. type .. ")")
     end
     registry.register(host, addr, modem.address, public)
   end
@@ -215,7 +243,7 @@ end
 function OCSense.resolve(modem, from, fqdn, requesting_segment, ...)
   local host, seg = normalize(fqdn)
   if debug then
-    print("[resolve] fqdn=" .. tostring(fqdn) .. " host=" .. tostring(host) .. " seg=" .. tostring(seg))
+    print("[sense] RES fqdn=" .. tostring(fqdn) .. " host=" .. tostring(host) .. " seg=" .. tostring(seg))
   end
   if not host then
     modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn or "", "invalid hostname")
@@ -237,13 +265,37 @@ function OCSense.resolve(modem, from, fqdn, requesting_segment, ...)
     return
   end
 
+  local lastSeg = seg:match("^.+%.(.+)$")
+  if lastSeg == conf.segment then
+    seg = seg:sub(1, #seg - #conf.segment - 1)
+  end
+
   local remoteSense = findSenseForSegment(seg)
-  if not remoteSense then
+  if not remoteSense and lastSeg and lastSeg == conf.segment then
     if debug then
       print("[sense] unknown segment " .. tostring(seg))
     end
     modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "unknown segment")
     return
+  end
+
+  if not remoteSense then
+    local gateway = nil
+    if not conf.skipGateway then
+      gateway = ocnet.getGatewayAddress()
+      remoteSense = sense_registry.getByAddr(gateway)
+    end
+    if not gateway or not remoteSense then
+      if debug then
+        print("[sense] unknown segment, no gateway found " .. tostring(fqdn) .. " seg=" .. tostring(seg))
+      end
+      modem.send(from, LISTEN_PORT, "RESOLVE_FAIL", fqdn, "unknown segment")
+      return
+    end
+
+    if debug then
+      print("[sense] use gateway " .. tostring(gateway) .. " for " .. tostring(seg))
+    end
   end
 
   if not remoteSense.public then
@@ -309,13 +361,37 @@ function OCSense.trace(modem, from, fqdn, traces, requesting_segment, ...)
     return
   end
 
+  local lastSeg = seg:match("^.+%.(.+)$")
+  if lastSeg == conf.segment then
+    seg = seg:sub(1, #seg - #conf.segment - 1)
+  end
   local remoteSense = findSenseForSegment(seg)
-  if not remoteSense then
+  local lastSeg = seg:match("^.+%.(.+)$")
+  if not remoteSense and lastSeg and lastSeg == conf.segment then
     if debug then
-      print("[sense] unknown segment for TRACE " .. tostring(seg))
+      print("[sense] unknown segment " .. tostring(seg))
     end
-    modem.send(from, LISTEN_PORT, "TRACE_FAIL", fqdn, "unknown segment", traces)
+    modem.send(from, LISTEN_PORT, "TRACE_FAIL", fqdn, "unknown segment")
     return
+  end
+
+  if not remoteSense then
+    local gateway = nil
+    if not conf.skipGateway then
+      gateway = ocnet.getGatewayAddress()
+      remoteSense = sense_registry.getByAddr(gateway)
+    end
+    if not gateway or not remoteSense then
+      if debug then
+        print("[sense] unknown segment, no gateway found " .. tostring(fqdn) .. " seg=" .. tostring(seg))
+      end
+      modem.send(from, LISTEN_PORT, "TRACE_FAIL", fqdn, "unknown segment")
+      return
+    end
+
+    if debug then
+      print("[sense] use gateway " .. tostring(gateway) .. " for " .. tostring(seg))
+    end
   end
 
 
@@ -373,13 +449,36 @@ function OCSense.route(modem, from, srcFqdn, fqdn, rport, ttl, ...)
     return
   end
 
-  local rsEntry, rsName = findSenseForSegment(seg)
-  if not rsEntry then
-    return
+  if seg and fqdn:match("^.+%.(.+)$") == conf.segment then
+    seg = seg:sub(1, #seg - #conf.segment - 1)
+  end
+
+  local remoteSense = findSenseForSegment(seg)
+  local gatewayUsed = false
+
+  if not remoteSense then
+    print("[sense] find sense for segment " .. tostring(seg))
+    local gateway = nil
+    if not conf.skipGateway then
+      gateway = ocnet.getGatewayAddress()
+      remoteSense = sense_registry.getByAddr(gateway)
+    end
+    if not gateway or not remoteSense then
+      if debug then
+        print("[sense] unknown segment, no gateway found " .. tostring(fqdn) .. " seg=" .. tostring(seg))
+      end
+      modem.send(from, LISTEN_PORT, "ROUTE_FAIL", fqdn, "unknown segment")
+      return
+    end
+
+    if debug then
+      print("[sense] use gateway " .. tostring(gateway) .. " for " .. tostring(seg))
+    end
+    gatewayUsed = true
   end
 
 
-  if not rsEntry.public then
+  if not remoteSense.public then
     if debug then
       print("[sense] access denied for segment " .. tostring(seg))
     end
@@ -387,14 +486,16 @@ function OCSense.route(modem, from, srcFqdn, fqdn, rport, ttl, ...)
     return
   end
 
-  local outModem = sense.modems[rsEntry.via] or modem
+  local outModem = sense.modems[remoteSense.via] or modem
   local fwdTtl = ttl - 1
   if fwdTtl < 1 then
     return
   end
 
-  srcFqdn = srcFqdn .. "." .. conf.segment
-  outModem.send(rsEntry.addr, LISTEN_PORT, "ROUTE", srcFqdn, fqdn, rport, fwdTtl, ...)
+  if gatewayUsed or remoteSense.addr == ocnet.gatewayAddr then
+    srcFqdn = srcFqdn .. "." .. conf.segment
+  end
+  outModem.send(remoteSense.addr, LISTEN_PORT, "ROUTE", srcFqdn, fqdn, rport, fwdTtl, ...)
 end
 
 function OCSense.list(modem, from, all, askingSense, ...)
@@ -408,38 +509,52 @@ function OCSense.list(modem, from, all, askingSense, ...)
 
   local parts = {}
 
-  if not all then
-    for _, e in pairs(entries) do
+  for _, e in pairs(entries) do
+    if all then
+      parts[#parts + 1] = tostring(e.name) .. "." .. conf.segment .. ":" .. tostring(e.addr)
+    else
       parts[#parts + 1] = tostring(e.name) .. ":" .. tostring(e.addr)
     end
+  end
+  if all then
     modem.send(from, LISTEN_PORT, "LIST_OK", table.concat(parts, ","))
+  else
+    modem.send(from, LISTEN_PORT, "LIST_END", table.concat(parts, ","))
     return
   end
+  parts = {}
 
-  for _, e in pairs(entries) do
-    parts[#parts + 1] = tostring(e.name) .. "." .. tostring(conf.segment) .. ":" .. tostring(e.addr)
-  end
+  local gatewaySense = sense_registry.getByAddr(ocnet.gatewayAddr)
 
   local received = {}
-  local function onMsg(_, _, rfrom, rport, _, rmsg, rdata, a, b)
-    if debug then
-      print("[LIST_OK] from " .. tostring(rfrom) .. " msg=" .. tostring(rmsg) .. " data=" .. tostring(rdata) .. " a=" .. tostring(a) .. " b=" .. tostring(b))
-    end
+  local function onMsg(_, _, rfrom, rport, _, rmsg, rdata)
+    parts = {}
     if rport ~= LISTEN_PORT then return end
-    if rmsg ~= "LIST_OK" then return end
+    if debug then
+      print("[LIST] " .. rmsg .. " from " ..
+        tostring(rfrom) ..
+        " msg=" .. tostring(rmsg) .. " data=" .. tostring(rdata))
+    end
+
+    if rmsg ~= "LIST_OK" and rmsg ~= "LIST_END" then return end
 
     if rdata and rdata ~= "" then
       for entry in rdata:gmatch("([^,]+)") do
         local name, addr = entry:match("^([^:]+):(.+)$")
-        if name and addr and askingSense then
+        local lastSeg = name:match("^.+%.(.+)$")
+        if name and addr and askingSense and (not gatewaySense or lastSeg ~= gatewaySense.segment) then
           parts[#parts + 1] = name .. "." .. conf.segment .. ":" .. addr
         else
           parts[#parts + 1] = entry
         end
       end
     end
-    received[rfrom] = true
-    event.ignore("modem_message", onMsg)
+    modem.send(from, LISTEN_PORT, "LIST_OK", table.concat(parts, ","))
+
+    if rmsg == "LIST_END" then
+      received[rfrom] = true
+      event.ignore("modem_message", onMsg)
+    end
   end
 
   event.listen("modem_message", onMsg)
@@ -467,7 +582,14 @@ function OCSense.list(modem, from, all, askingSense, ...)
     event.pull(0.1)
   end
   event.ignore("modem_message", onMsg)
-  modem.send(from, LISTEN_PORT, "LIST_OK", table.concat(parts, ","))
+  modem.send(from, LISTEN_PORT, "LIST_END")
+end
+
+function OCSense.restart(modem, _, _, _)
+  print("OCSense restarting...")
+  sendReboot(modem)
+  os.sleep(3)
+  os.execute("reboot")
 end
 
 function start()
@@ -484,8 +606,14 @@ function start()
   sense.registerEvent("SENSE_DISC", OCSense.senseDiscovery)
   sense.registerEvent("SENSE_HI", OCSense.senseDiscoveryAnswer)
 
+  if debug then
+    sense.registerEvent("RESTART", OCSense.restart)
+  end
+
   sense.listen()
+
   checkHostnameBySegment()
+  loadGateway()
   registerOwnModems()
   announceSense()
 
@@ -500,7 +628,7 @@ function start()
       break
     end
   end
-
+  sendReboot()
   stop()
 end
 

@@ -6,6 +6,7 @@ function M.register(segment, addr, via, public)
         return
     end
     peers[segment] = {
+        segment = segment,
         addr = addr,
         via = via,
         public = public
@@ -17,6 +18,10 @@ function M.get(segment)
 end
 
 function M.getByAddr(addr)
+    if not addr then
+        return nil
+    end
+
     for segment, info in pairs(peers) do
         if info.addr == addr then
             return info

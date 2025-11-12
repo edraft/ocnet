@@ -117,6 +117,7 @@ function Conf.getSenseConf()
     local conf = Conf.loadConf("/etc/ocsense.conf", {
         segment = "local",
         debug = false,
+        skipGateway = false,
         gateway = nil,
         public = true
     })
