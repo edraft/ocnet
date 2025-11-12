@@ -553,7 +553,6 @@ function OCSense.list(modem, from, all, askingSense, ...)
 
     if rmsg == "LIST_END" then
       received[rfrom] = true
-      event.ignore("modem_message", onMsg)
     end
   end
 
@@ -579,7 +578,7 @@ function OCSense.list(modem, from, all, askingSense, ...)
   local deadline = computer.uptime() + 32
 
   while computer.uptime() < deadline and hasPending(received) do
-    event.pull(0.1)
+    event.pull()
   end
   event.ignore("modem_message", onMsg)
   modem.send(from, LISTEN_PORT, "LIST_END")
