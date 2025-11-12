@@ -72,10 +72,42 @@ if not received then
     return
 end
 
--- for each interface print Interface ... then all entries
 for iface, entries in pairs(interfaces) do
     print("Interface: " .. tostring(iface))
-    for name, addr in pairs(entries) do
-        print(string.format("  %-20s -> %s", name, addr))
+
+    local names = {}
+    for name in pairs(entries) do
+        table.insert(names, name)
+    end
+
+    local function splitLabels(s)
+        local t = {}
+        for part in s:lower():gmatch("[^%.]+") do
+            t[#t + 1] = part
+        end
+        return t
+    end
+
+    local function hostLess(a, b)
+        local da = select(2, a:gsub("%.", ""))
+        local db = select(2, b:gsub("%.", ""))
+        if da ~= db then return da < db end
+
+        local la, lb = splitLabels(a), splitLabels(b)
+        local i, j = #la, #lb
+        while i > 0 and j > 0 do
+            if la[i] ~= lb[j] then
+                return la[i] < lb[j]
+            end
+            i, j = i - 1, j - 1
+        end
+        if #la ~= #lb then return #la < #lb end
+        return a:lower() < b:lower()
+    end
+
+    table.sort(names, hostLess)
+
+    for _, name in ipairs(names) do
+        print(string.format("  %-20s -> %s", name, entries[name]))
     end
 end

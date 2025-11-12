@@ -457,7 +457,6 @@ function OCSense.route(modem, from, srcFqdn, fqdn, rport, ttl, ...)
   local gatewayUsed = false
 
   if not remoteSense then
-    print("[sense] find sense for segment " .. tostring(seg))
     local gateway = nil
     if not conf.skipGateway then
       gateway = ocnet.getGatewayAddress()
