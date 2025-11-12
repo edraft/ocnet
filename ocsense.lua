@@ -191,20 +191,6 @@ local function registerSense(modem, from, segment, public, ...)
   end
 end
 
-local function sendReboot(except)
-  if not debug then
-    return
-  end
-  if not except then
-    except = { address = nil }
-  end
-  for _, modem in pairs(sense.modems) do
-    if modem.address ~= except.address and modem.address ~= ocnet.gatewayAddr then
-      modem.broadcast(LISTEN_PORT, "RESTART", conf.segment)
-    end
-  end
-end
-
 local OCSense = {}
 
 function OCSense.gatewayDiscovery(modem, from, name, ...)
@@ -583,13 +569,6 @@ function OCSense.list(modem, from, all, askingSense, ...)
   modem.send(from, LISTEN_PORT, "LIST_END")
 end
 
-function OCSense.restart(modem, _, _, _)
-  print("OCSense restarting...")
-  sendReboot(modem)
-  os.sleep(3)
-  os.execute("reboot")
-end
-
 function start()
   sense.verbose = debug
 
@@ -603,10 +582,6 @@ function start()
 
   sense.registerEvent("SENSE_DISC", OCSense.senseDiscovery)
   sense.registerEvent("SENSE_HI", OCSense.senseDiscoveryAnswer)
-
-  if debug then
-    sense.registerEvent("RESTART", OCSense.restart)
-  end
 
   sense.listen()
 
@@ -626,7 +601,6 @@ function start()
       break
     end
   end
-  sendReboot()
   stop()
 end
 
