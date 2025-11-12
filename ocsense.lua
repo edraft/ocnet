@@ -47,7 +47,7 @@ end
 local function registerOwnModems()
   local m_count = 0
   for _, m in pairs(sense.modems) do
-    registry.register("gw" .. tostring(m_count), m.address, nil)
+    registry.register("gw" .. tostring(m_count), m.address, nil, true)
     m.broadcast(LISTEN_PORT, "CL_DISC")
     m_count = m_count + 1
   end
@@ -399,6 +399,7 @@ end
 
 function OCSense.list(modem, from, all, askingSense, ...)
   local entries = {}
+
   if not askingSense then
     entries = registry.list()
   else
@@ -408,6 +409,9 @@ function OCSense.list(modem, from, all, askingSense, ...)
   local parts = {}
 
   if not all then
+    for _, e in pairs(entries) do
+      parts[#parts + 1] = tostring(e.name) .. ":" .. tostring(e.addr)
+    end
     modem.send(from, LISTEN_PORT, "LIST_OK", table.concat(parts, ","))
     return
   end
@@ -417,9 +421,9 @@ function OCSense.list(modem, from, all, askingSense, ...)
   end
 
   local received = {}
-  local function onMsg(_, _, rfrom, rport, _, rmsg, rdata)
+  local function onMsg(_, _, rfrom, rport, _, rmsg, rdata, a, b)
     if debug then
-      print("[LIST_OK] from " .. tostring(rfrom) .. " data=" .. tostring(rdata))
+      print("[LIST_OK] from " .. tostring(rfrom) .. " msg=" .. tostring(rmsg) .. " data=" .. tostring(rdata) .. " a=" .. tostring(a) .. " b=" .. tostring(b))
     end
     if rport ~= LISTEN_PORT then return end
     if rmsg ~= "LIST_OK" then return end
@@ -457,7 +461,7 @@ function OCSense.list(modem, from, all, askingSense, ...)
     return false
   end
 
-  local deadline = computer.uptime() + 16
+  local deadline = computer.uptime() + 32
 
   while computer.uptime() < deadline and hasPending(received) do
     event.pull(0.1)
@@ -474,12 +478,11 @@ function start()
   sense.registerEvent("REGISTER", OCSense.clientRegistration)
   sense.registerEvent("RESOLVE", OCSense.resolve)
   sense.registerEvent("LIST", OCSense.list)
+  sense.registerEvent("ROUTE", OCSense.route)
+  sense.registerEvent("TRACE", OCSense.trace)
 
   sense.registerEvent("SENSE_DISC", OCSense.senseDiscovery)
   sense.registerEvent("SENSE_HI", OCSense.senseDiscoveryAnswer)
-
-  sense.registerEvent("ROUTE", OCSense.route)
-  sense.registerEvent("TRACE", OCSense.trace)
 
   sense.listen()
   checkHostnameBySegment()
