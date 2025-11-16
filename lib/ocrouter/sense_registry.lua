@@ -1,7 +1,7 @@
 local M = {}
 local peers = {}
 
-function M.register(segment, addr, via, public)
+function M.register(segment, addr, via, public, gatewayName)
     if not segment or not addr then
         return
     end
@@ -9,7 +9,8 @@ function M.register(segment, addr, via, public)
         segment = segment,
         addr = addr,
         via = via,
-        public = public
+        public = public,
+        gatewayName = gatewayName
     }
 end
 

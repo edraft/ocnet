@@ -59,7 +59,7 @@ local function announceSense()
     if debug then
       print("[sense] TX SENSE_DISC " .. tostring(conf.segment) .. " via " .. tostring(m.address))
     end
-    m.broadcast(LISTEN_PORT, "SENSE_DISC", conf.segment, m.address, conf.public)
+    m.broadcast(LISTEN_PORT, "SENSE_DISC", conf.segment, m.address, conf.public, ocnet.gatewayName)
   end
 end
 
@@ -180,9 +180,9 @@ local function forwardTrace(outModem, replyModem, requesterAddr, remoteAddr, fqd
   end
 end
 
-local function registerSense(modem, from, segment, public, ...)
+local function registerSense(modem, from, segment, public, gatewayName, ...)
   if not segment then return end
-  sense_registry.register(segment, from, modem.address, public)
+  sense_registry.register(segment, from, modem.address, public, gatewayName)
   if debug then
     local type = "PRI"
     if public then type = "PUB" end
@@ -301,19 +301,21 @@ function OCSense.resolve(modem, from, fqdn, requesting_segment, ...)
   forwardResolve(outModem, modem, from, remoteSense.addr, fqdn)
 end
 
-function OCSense.senseDiscovery(modem, from, a, _, public, ...)
+function OCSense.senseDiscovery(modem, from, a, _, public, gatewayName, ...)
   if debug then
-    print("[sense] RX SENSE_DISC from " .. tostring(from) .. " expect=" .. tostring(a) .. " public=" .. tostring(public))
+    print("[sense] RX SENSE_DISC from " ..
+    tostring(from) .. " expect=" .. tostring(a) .. " public=" .. tostring(public) .. " gateway=" .. tostring(gatewayName))
   end
-  modem.send(from, LISTEN_PORT, "SENSE_HI", conf.segment, modem.address, conf.public)
-  registerSense(modem, from, a, public)
+  modem.send(from, LISTEN_PORT, "SENSE_HI", conf.segment, modem.address, conf.public, ocnet.gatewayName)
+  registerSense(modem, from, a, public, gatewayName)
 end
 
-function OCSense.senseDiscoveryAnswer(modem, from, a, public, ...)
+function OCSense.senseDiscoveryAnswer(modem, from, a, public, _, gatewayName, ...)
   if debug then
-    print("[sense] RX SENSE_HI " .. tostring(a) .. " from " .. tostring(from))
+    print("[sense] RX SENSE_HI " ..
+    tostring(a) .. " from " .. tostring(from) .. " public=" .. tostring(public) .. " gateway=" .. tostring(gatewayName))
   end
-  registerSense(modem, from, a, public)
+  registerSense(modem, from, a, public, gatewayName)
 end
 
 function OCSense.trace(modem, from, fqdn, traces, requesting_segment, ...)
@@ -542,9 +544,13 @@ function OCSense.list(modem, from, all, askingSense, ...)
   end
 
   event.listen("modem_message", onMsg)
-
   for segment, s in pairs(sense_registry.listPublic()) do
-    if segment ~= conf.segment and segment ~= askingSense then
+    -- if own gateway is same as remote sense gateway, skip sending LIST to avoid loops
+    if ocnet.gatewayName ~= s.gatewayName and segment ~= conf.segment and segment ~= askingSense then
+      if debug then
+        print("[LIST] TX to " ..
+        tostring(segment) .. " " .. tostring(s.gatewayName) .. " " .. tostring(ocnet.gatewayName))
+      end
       local out = sense.modems[s.via] or modem
       received[s.addr] = false
       out.send(s.addr, LISTEN_PORT, "LIST", true, conf.segment)

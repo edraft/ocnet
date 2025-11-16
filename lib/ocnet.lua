@@ -11,6 +11,7 @@ local M = {}
 M.ttl = 32
 M.modem = nil
 M.gatewayAddr = nil
+M.gatewayName = nil
 
 function M.getGatewayAddress()
     if M.gatewayAddr then
@@ -36,7 +37,7 @@ function M.findGatewayAddress()
             end
 
             M.gatewayAddr = from
-
+            M.gatewayName = name
             for modem in component.list("modem") do
                 local m = component.proxy(modem)
                 if m.address ~= localModemAddr then
