@@ -313,7 +313,7 @@ end
 function OCSense.senseDiscoveryAnswer(modem, from, a, public, _, gatewayName, ...)
   if debug then
     print("[sense] RX SENSE_HI " ..
-    tostring(a) .. " from " .. tostring(from) .. " public=" .. tostring(public) .. " gateway=" .. tostring(gatewayName))
+      tostring(a) .. " from " .. tostring(from) .. " public=" .. tostring(public) .. " gateway=" .. tostring(gatewayName))
   end
   registerSense(modem, from, a, public, gatewayName)
 end
@@ -479,8 +479,17 @@ function OCSense.route(modem, from, srcFqdn, fqdn, rport, ttl, ...)
     return
   end
 
-  if gatewayUsed or remoteSense.addr == ocnet.gatewayAddr then
+  local lastSrcSeg = srcFqdn:match("^.+%.(.+)$")
+  if not lastSrcSeg or gatewayUsed or remoteSense.addr == ocnet.gatewayAddr then
     srcFqdn = srcFqdn .. "." .. conf.segment
+  end
+
+  if debug then
+    print("[sense] ROUTE forward to " .. tostring(remoteSense.addr) ..
+      " via " .. tostring(remoteSense.via) ..
+      " src=" .. tostring(srcFqdn) ..
+      " dest=" .. tostring(fqdn) ..
+      " ttl=" .. tostring(fwdTtl))
   end
   outModem.send(remoteSense.addr, LISTEN_PORT, "ROUTE", srcFqdn, fqdn, rport, fwdTtl, ...)
 end
@@ -549,7 +558,7 @@ function OCSense.list(modem, from, all, askingSense, ...)
     if ocnet.gatewayName ~= s.gatewayName and segment ~= conf.segment and segment ~= askingSense then
       if debug then
         print("[LIST] TX to " ..
-        tostring(segment) .. " " .. tostring(s.gatewayName) .. " " .. tostring(ocnet.gatewayName))
+          tostring(segment) .. " " .. tostring(s.gatewayName) .. " " .. tostring(ocnet.gatewayName))
       end
       local out = sense.modems[s.via] or modem
       received[s.addr] = false
