@@ -1,6 +1,7 @@
 local event = require("event")
 local modemlib = require("ocrouter.modem")
 
+local conf = require("ocnet.conf").getSenseConf()
 local LISTEN_PORT = require("ocnet.conf").getConf().port
 
 
@@ -8,6 +9,42 @@ local sense = {}
 sense.verbose = false
 sense.events = {}
 sense.modems = {}
+
+function sense.out(...)
+    local msg = "[sense] " .. table.concat({ ... }, " ")
+
+    if sense.verbose then
+        print(msg)
+    end
+
+    if not conf.logFile then
+        return
+    end
+
+    local f = io.open(conf.logFile, "r")
+    if not f then
+        os.execute("mkdir -p " .. conf.logFile:match("(.*/)"))
+        print("Creating log file: " .. conf.logFile)
+        f = io.open(conf.logFile, "w")
+        if not f then
+            print("Failed to create log file: " .. conf.logFile)
+            return
+        end
+        if f then
+            f:close()
+        end
+    else
+        f:close()
+    end
+
+    local f = io.open(conf.logFile, "a")
+    if not f then
+        print("Failed to open log file: " .. conf.logFile)
+        return
+    end
+    f:write(msg .. "\n")
+    f:close()
+end
 
 function sense.registerEvent(route_event, callback)
     if sense.events[route_event] ~= nil then
@@ -17,12 +54,10 @@ function sense.registerEvent(route_event, callback)
 end
 
 function sense.onModemMessage(_, localModemAddr, from, rport, _, msg, ...)
-    if sense.verbose then
-        print("[sense] RX on modem " .. tostring(localModemAddr) ..
-            " from " .. tostring(from) ..
-            " port " .. tostring(rport) ..
-            " msg " .. tostring(msg))
-    end
+    sense.out("RX on modem " .. tostring(localModemAddr) ..
+        " from " .. tostring(from) ..
+        " port " .. tostring(rport) ..
+        " msg " .. tostring(msg))
 
     if rport ~= LISTEN_PORT or type(msg) ~= "string" then
         return
@@ -37,7 +72,7 @@ function sense.onModemMessage(_, localModemAddr, from, rport, _, msg, ...)
     local event = sense.events[msg]
     if event == nil then
         if sense.verbose then
-            print("[sense] No handler for message: " .. tostring(msg))
+            sense.out("No handler for message: " .. tostring(msg))
         end
 
         return

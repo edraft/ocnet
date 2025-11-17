@@ -14,6 +14,10 @@ function M.register(segment, addr, via, public, gatewayName)
     }
 end
 
+function M.unregister(segment)
+    peers[segment] = nil
+end
+
 function M.get(segment)
     return peers[segment]
 end
@@ -43,10 +47,6 @@ function M.listPublic()
         end
     end
     return publicPeers
-end
-
-function M.unregister(segment)
-    peers[segment] = nil
 end
 
 function M.clear()

@@ -119,7 +119,8 @@ function Conf.getSenseConf()
         debug = false,
         skipGateway = false,
         gateway = nil,
-        public = true
+        public = true,
+        logFile = "/var/log/ocsense.log"
     })
     return conf
 end

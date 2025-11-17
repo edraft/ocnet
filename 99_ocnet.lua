@@ -1,12 +1,16 @@
 local component = require("component")
 local event = require("event")
-local computer = require("computer")
 local dns = require("ocnet.dns")
 local confmod = require("ocnet.conf")
 local ocnet = require("ocnet")
 
 local conf = confmod.getConf()
 local modem = component.modem
+
+if not modem then
+  error("No modem component found")
+  os.exit()
+end
 
 
 local function onMsg(_, _, from, port, _, msg, ...)

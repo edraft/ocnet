@@ -2,8 +2,11 @@ local M = {}
 
 local registry = {}
 
-function M.get()
-    return registry
+function M.get(name)
+    if not name then
+        return registry
+    end
+    return registry[name]
 end
 
 function M.register(name, addr, via, public)
