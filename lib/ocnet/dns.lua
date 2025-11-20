@@ -24,6 +24,11 @@ function M.getHostname()
         name = f:read("*l") or ""
         f:close()
     end
+
+    if not name or name == "" then
+        name = computer.address():sub(1, 6)
+        M.setHostname(name)
+    end
     return name
 end
 
